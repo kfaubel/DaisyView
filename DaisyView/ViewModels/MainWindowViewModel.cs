@@ -1,0 +1,730 @@
+using System;
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.Linq;
+using System.Threading.Tasks;
+using System.Windows.Input;
+using DaisyView.Models;
+using DaisyView.Services;
+
+namespace DaisyView.ViewModels;
+
+/// <summary>
+/// Base class for ViewModels to implement INotifyPropertyChanged
+/// </summary>
+public class ViewModelBase : System.ComponentModel.INotifyPropertyChanged
+{
+    public event System.ComponentModel.PropertyChangedEventHandler? PropertyChanged;
+
+    protected void OnPropertyChanged(string propertyName)
+    {
+        PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(propertyName));
+    }
+}
+
+/// <summary>
+/// Event args for folder navigation
+/// </summary>
+public class FolderNavigationEventArgs : EventArgs
+{
+    public required string FolderPath { get; set; }
+}
+
+/// <summary>
+/// ViewModel for the main application window
+/// Coordinates between the file system tree view and thumbnail view
+/// </summary>
+public class MainWindowViewModel : ViewModelBase
+{
+    private readonly SettingsService _settingsService;
+    private readonly LoggingService _loggingService;
+    private readonly FileSystemService _fileSystemService;
+    private readonly ThumbnailService _thumbnailService;
+    private bool _isNavigating = false;
+
+    private ObservableCollection<TreeNode> _rootNodes = new();
+    private TreeNode? _activeFolder;
+    private ObservableCollection<ImageFile> _images = new();
+    private ImageFile? _activeImage;
+    private bool _randomEnabled;
+    private bool _isFavorite;
+    private string _thumbnailSize = "Medium";
+    private List<string> _favorites = new();
+
+    // Commands
+    private ICommand? _navigateToFolderCommand;
+    private ICommand? _toggleFavoriteCommand;
+    private ICommand? _toggleRandomCommand;
+    private ICommand? _markImageCommand;
+    private ICommand? _moveMarkedImagesCommand;
+    private ICommand? _openSlideshowCommand;
+    private ICommand? _expandFolderCommand;
+
+    public event EventHandler<FolderNavigationEventArgs>? FolderNavigated;
+
+    public ObservableCollection<TreeNode> RootNodes
+    {
+        get => _rootNodes;
+        set { _rootNodes = value; OnPropertyChanged(nameof(RootNodes)); }
+    }
+
+    public TreeNode? ActiveFolder
+    {
+        get => _activeFolder;
+        set { _activeFolder = value; OnPropertyChanged(nameof(ActiveFolder)); }
+    }
+
+    public ObservableCollection<ImageFile> Images
+    {
+        get => _images;
+        set { _images = value; OnPropertyChanged(nameof(Images)); }
+    }
+
+    public ImageFile? ActiveImage
+    {
+        get => _activeImage;
+        set { _activeImage = value; OnPropertyChanged(nameof(ActiveImage)); }
+    }
+
+    public bool RandomEnabled
+    {
+        get => _randomEnabled;
+        set { _randomEnabled = value; OnPropertyChanged(nameof(RandomEnabled)); }
+    }
+
+    public bool IsFavorite
+    {
+        get => _isFavorite;
+        set { _isFavorite = value; OnPropertyChanged(nameof(IsFavorite)); }
+    }
+
+    public string ThumbnailSize
+    {
+        get => _thumbnailSize;
+        set { _thumbnailSize = value; OnPropertyChanged(nameof(ThumbnailSize)); OnPropertyChanged(nameof(ThumbnailSizePixels)); OnPropertyChanged(nameof(ThumbnailHeightPixels)); }
+    }
+
+    /// <summary>
+    /// Gets the thumbnail size in pixels for binding to UI
+    /// </summary>
+    public int ThumbnailSizePixels
+    {
+        get => ThumbnailService.GetThumbnailSizePixels(_thumbnailSize);
+    }
+
+    /// <summary>
+    /// Gets the thumbnail height in pixels based on 16:9 aspect ratio
+    /// </summary>
+    public int ThumbnailHeightPixels
+    {
+        get => (int)(ThumbnailSizePixels * 9 / 16.0);
+    }
+
+    public List<string> Favorites
+    {
+        get => _favorites;
+        set { _favorites = value; OnPropertyChanged(nameof(Favorites)); }
+    }
+
+    public bool MoveButtonEnabled
+    {
+        get => Images.Any(i => i.IsMarked);
+    }
+
+    public bool IsNavigating
+    {
+        get => _isNavigating;
+        set { _isNavigating = value; }
+    }
+
+    // Command Properties
+    public ICommand NavigateToFolderCommand => _navigateToFolderCommand ??= new RelayCommand<string>(NavigateToFolder);
+    public ICommand ToggleFavoriteCommand => _toggleFavoriteCommand ??= new RelayCommand(_ => ToggleFavorite(), _ => ActiveFolder != null);
+    public ICommand ToggleRandomCommand => _toggleRandomCommand ??= new RelayCommand(_ => ToggleRandom(), _ => ActiveFolder != null && Images.Count > 0);
+    public ICommand MarkImageCommand => _markImageCommand ??= new RelayCommand<ImageFile>(MarkImage, img => img != null);
+    public ICommand MoveMarkedImagesCommand => _moveMarkedImagesCommand ??= new RelayCommand<string>(async path => await MoveMarkedImagesAsync(path), _ => Images.Any(i => i.IsMarked));
+    public ICommand OpenSlideshowCommand => _openSlideshowCommand ??= new RelayCommand(_ => OpenSlideshow(), _ => Images.Count > 0);
+    public ICommand ExpandFolderCommand => _expandFolderCommand ??= new RelayCommand<TreeNode>(ExpandFolder, node => node != null);
+
+    public MainWindowViewModel()
+    {
+        _settingsService = new SettingsService();
+        _loggingService = new LoggingService(_settingsService);
+        _fileSystemService = new FileSystemService(_loggingService);
+        _thumbnailService = new ThumbnailService(_loggingService);
+
+        LoadRootDrives();
+        LoadLastActiveFolder();
+        LoadFavorites();
+        LoadThumbnailSize();
+    }
+
+    /// <summary>
+    /// Loads the root drives into the tree view
+    /// </summary>
+    private void LoadRootDrives()
+    {
+        try
+        {
+            var drives = _fileSystemService.GetRootDrives();
+            RootNodes = new ObservableCollection<TreeNode>(drives);
+            _loggingService.LogTrace("Loaded {DriveCount} root drives", drives.Count);
+        }
+        catch (Exception ex)
+        {
+            _loggingService.LogError("Failed to load root drives", ex);
+        }
+    }
+
+    /// <summary>
+    /// Loads the last active folder from settings
+    /// </summary>
+    private void LoadLastActiveFolder()
+    {
+        _loggingService.LogTrace("LoadLastActiveFolder() START");
+        try
+        {
+            var lastPath = _settingsService.GetLastActiveFolderPath();
+            _loggingService.LogTrace("Last active folder from settings: {Path}", lastPath ?? "null");
+            
+            if (lastPath != null && _fileSystemService.PathExists(lastPath))
+            {
+                _loggingService.LogTrace("Path exists, calling NavigateToFolder");
+                NavigateToFolder(lastPath);
+            }
+            else
+            {
+                _loggingService.LogTrace("Path is null or does not exist");
+            }
+        }
+        catch (Exception ex)
+        {
+            _loggingService.LogError("LoadLastActiveFolder exception", ex);
+        }
+    }
+
+    /// <summary>
+    /// Loads favorite folders from settings
+    /// </summary>
+    private void LoadFavorites()
+    {
+        try
+        {
+            Favorites = new List<string>(_settingsService.GetFavoriteFolders());
+        }
+        catch (Exception ex)
+        {
+            _loggingService.LogError("Failed to load favorites", ex);
+        }
+    }
+
+    /// <summary>
+    /// Loads the thumbnail size from settings
+    /// </summary>
+    private void LoadThumbnailSize()
+    {
+        try
+        {
+            var settings = _settingsService.GetSettings();
+            ThumbnailSize = settings.ThumbnailSize;
+            _thumbnailService.SetThumbnailSize(settings.ThumbnailSize);
+        }
+        catch (Exception ex)
+        {
+            _loggingService.LogError("Failed to load thumbnail size", ex);
+        }
+    }
+
+    /// <summary>
+    /// Navigates to a specific folder
+    /// </summary>
+    public void NavigateToFolder(string? folderPath)
+    {
+        _loggingService.LogTrace("NavigateToFolder called with: {Path}", folderPath ?? "null");
+        if (string.IsNullOrEmpty(folderPath))
+        {
+            return;
+        }
+
+        _ = NavigateToFolderAsync(folderPath);
+    }
+
+    /// <summary>
+    /// Asynchronously navigates to a folder and loads images without blocking the UI
+    /// </summary>
+    private async Task NavigateToFolderAsync(string? folderPath)
+    {
+        _loggingService.LogTrace("NavigateToFolderAsync START for: {Path}", folderPath);
+        
+        if (string.IsNullOrEmpty(folderPath))
+            return;
+
+        _isNavigating = true;
+
+        try
+        {
+            if (!_fileSystemService.PathExists(folderPath))
+            {
+                _loggingService.LogWarning("Attempted to navigate to non-existent folder: {FolderPath}", folderPath);
+                return;
+            }
+
+            _loggingService.LogUserAction("Navigate to folder", folderPath);
+
+            // Cancel thumbnail generation for the previous folder
+            _thumbnailService.CancelBackgroundGeneration();
+
+            // Load images from the new folder asynchronously
+            var images = await _fileSystemService.GetImageFilesAsync(folderPath);
+            Images = new ObservableCollection<ImageFile>(images);
+
+            // Set first image as active
+            if (images.Count > 0)
+            {
+                images[0].IsActive = true;
+                ActiveImage = images[0];
+            }
+            else
+            {
+                ActiveImage = null;
+            }
+
+            // Update settings
+            _settingsService.SetLastActiveFolderPath(folderPath);
+
+            // Watch this folder for changes
+            _fileSystemService.WatchFolder(folderPath);
+
+            // Check if this folder is a favorite
+            IsFavorite = _settingsService.IsFavorite(folderPath);
+
+            // Load random order if it was previously enabled
+            var randomOrder = _settingsService.GetRandomOrder(folderPath);
+            if (randomOrder != null)
+            {
+                RandomEnabled = true;
+                ReorderImagesRandomly(randomOrder);
+            }
+            else
+            {
+                RandomEnabled = false;
+            }
+
+            // Generate thumbnails
+            var visibleCount = 10; // TODO: Calculate based on UI size
+            _thumbnailService.GenerateThumbnailsAsync(images, visibleCount);
+
+            // Fire navigation event
+            FolderNavigated?.Invoke(this, new FolderNavigationEventArgs { FolderPath = folderPath });
+            
+            // Expand the tree to show this folder and mark it as active
+            // Wait for the initial delay, then expand and mark the folder
+            await Task.Delay(100);
+            await ExpandAndMarkFolderAsync(folderPath);
+        }
+        catch (Exception ex)
+        {
+            _loggingService.LogError("NavigateToFolderAsync exception", ex);
+        }
+        finally
+        {
+            _isNavigating = false;
+        }
+    }
+
+    /// <summary>
+    /// Asynchronously expands the tree view to show a folder and marks it as active
+    /// </summary>
+    private async Task ExpandAndMarkFolderAsync(string folderPath)
+    {
+        var pathParts = folderPath.Split(new[] { System.IO.Path.DirectorySeparatorChar }, System.StringSplitOptions.RemoveEmptyEntries);
+        if (pathParts.Length == 0)
+            return;
+
+        // Find the root drive
+        var rootDrive = pathParts[0] + System.IO.Path.DirectorySeparatorChar;
+        var rootNode = RootNodes.FirstOrDefault(n => n.FullPath.Equals(rootDrive, StringComparison.OrdinalIgnoreCase));
+        
+        if (rootNode == null)
+            return;
+
+        // Expand root and wait for it to load
+        await ExpandFolderAsync(rootNode);
+        rootNode.IsExpanded = true;
+        
+        // Traverse down the path, expanding each folder
+        var currentPath = rootDrive;
+        var currentNode = rootNode;
+        TreeNode? targetNode = null;
+
+        for (int i = 1; i < pathParts.Length; i++)
+        {
+            currentPath = System.IO.Path.Combine(currentPath, pathParts[i]);
+            
+            // Find the child matching this path segment
+            var childNode = currentNode.Children.FirstOrDefault(n => 
+                n.FullPath.Equals(currentPath, StringComparison.OrdinalIgnoreCase));
+
+            if (childNode == null)
+                break; // Path doesn't exist in tree
+
+            // Expand this folder and wait for it to load before continuing
+            await ExpandFolderAsync(childNode);
+            childNode.IsExpanded = true; // Explicitly ensure it's expanded
+            
+            // Keep track of the final target node
+            targetNode = childNode;
+            currentNode = childNode;
+        }
+        
+        // Only mark the final target folder as active
+        if (targetNode != null)
+        {
+            targetNode.IsActive = true;
+            ActiveFolder = targetNode;
+        }
+    }
+
+    /// <summary>
+    /// Asynchronously expands a folder and loads its children
+    /// </summary>
+    private async Task ExpandFolderAsync(TreeNode? node)
+    {
+        if (node == null)
+            return;
+
+        _loggingService.LogTrace("ExpandFolderAsync called for: {FolderPath}", node.FullPath);
+
+        try
+        {
+            // Remove placeholder if it exists
+            var placeholder = node.Children.FirstOrDefault(c => c.FullPath == "");
+            if (placeholder != null)
+            {
+                _loggingService.LogTrace("Removing placeholder from: {FolderPath}", node.FullPath);
+                node.Children.Remove(placeholder);
+            }
+
+            if (node.Children.Count == 0)
+            {
+                // Load children for this node asynchronously
+                _loggingService.LogTrace("Loading subfolders for: {FolderPath}", node.FullPath);
+                
+                // Run file system operation on background thread
+                var subfolders = await Task.Run(() => _fileSystemService.GetSubfolders(node.FullPath, node));
+                
+                _loggingService.LogTrace("Got {SubfolderCount} subfolders for: {FolderPath}", subfolders.Count, node.FullPath);
+                
+                foreach (var subfolder in subfolders)
+                {
+                    node.Children.Add(subfolder);
+                }
+                
+                _loggingService.LogTrace("Expanded folder: {FolderPath}", node.FullPath);
+            }
+
+            node.IsExpanded = true;
+        }
+        catch (Exception ex)
+        {
+            _loggingService.LogError("Failed to expand folder {FolderPath}", ex, node.FullPath);
+        }
+    }
+
+    /// <summary>
+    /// Expands a folder in the tree view and loads its children asynchronously
+    /// </summary>
+    public async void ExpandFolder(TreeNode? node)
+    {
+        if (node == null)
+            return;
+
+        _loggingService.LogTrace("ExpandFolder called for: {FolderPath}", node.FullPath);
+
+        try
+        {
+            // Remove placeholder if it exists
+            var placeholder = node.Children.FirstOrDefault(c => c.FullPath == "");
+            if (placeholder != null)
+            {
+                _loggingService.LogTrace("Removing placeholder from: {FolderPath}", node.FullPath);
+                node.Children.Remove(placeholder);
+            }
+
+            if (node.Children.Count == 0)
+            {
+                // Load children for this node asynchronously
+                _loggingService.LogTrace("Loading subfolders for: {FolderPath}", node.FullPath);
+                
+                // Run file system operation on background thread
+                var subfolders = await Task.Run(() => _fileSystemService.GetSubfolders(node.FullPath, node));
+                
+                _loggingService.LogTrace("Got {SubfolderCount} subfolders for: {FolderPath}", subfolders.Count, node.FullPath);
+                
+                foreach (var subfolder in subfolders)
+                {
+                    node.Children.Add(subfolder);
+                }
+                
+                _loggingService.LogTrace("Expanded folder: {FolderPath}", node.FullPath);
+            }
+
+            node.IsExpanded = true;
+        }
+        catch (Exception ex)
+        {
+            _loggingService.LogError("Failed to expand folder {FolderPath}", ex, node.FullPath);
+        }
+    }
+
+    /// <summary>
+    /// Toggles the favorite status of the active folder
+    /// </summary>
+    public void ToggleFavorite()
+    {
+        if (ActiveFolder == null)
+            return;
+
+        try
+        {
+            // IsFavorite has already been updated by the TwoWay binding
+            // So we check the NEW state to determine what action was taken
+            if (IsFavorite)
+            {
+                _settingsService.AddFavoritFolder(ActiveFolder.FullPath);
+                _loggingService.LogUserAction("Added favorite", ActiveFolder.FullPath);
+            }
+            else
+            {
+                _settingsService.RemoveFavoriteFolder(ActiveFolder.FullPath);
+                _loggingService.LogUserAction("Removed favorite", ActiveFolder.FullPath);
+            }
+
+            LoadFavorites();
+        }
+        catch (Exception ex)
+        {
+            _loggingService.LogError("Failed to toggle favorite", ex);
+        }
+    }
+
+    /// <summary>
+    /// Toggles random sort for the active folder
+    /// </summary>
+    public void ToggleRandom()
+    {
+        if (ActiveFolder == null)
+            return;
+
+        try
+        {
+            RandomEnabled = !RandomEnabled;
+            _loggingService.LogUserAction("Toggle random sort", $"Enabled: {RandomEnabled}");
+
+            if (RandomEnabled)
+            {
+                // Create random order
+                var fileNames = Images.Select(i => i.FileName).ToList();
+                var random = new Random();
+                var randomOrder = fileNames.OrderBy(_ => random.Next()).ToList();
+
+                _settingsService.SaveRandomOrder(ActiveFolder.FullPath, randomOrder);
+                ReorderImagesRandomly(randomOrder);
+            }
+            else
+            {
+                // Clear random order
+                _settingsService.ClearRandomOrder(ActiveFolder.FullPath);
+
+                // Reload images in normal order
+                var images = _fileSystemService.GetImageFiles(ActiveFolder.FullPath);
+                Images = new ObservableCollection<ImageFile>(images);
+                
+                if (images.Count > 0)
+                {
+                    images[0].IsActive = true;
+                    ActiveImage = images[0];
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _loggingService.LogError("Failed to toggle random sort", ex);
+        }
+    }
+
+    /// <summary>
+    /// Reorders images based on a provided list of file names
+    /// </summary>
+    private void ReorderImagesRandomly(List<string> fileNameOrder)
+    {
+        var reorderedImages = new ObservableCollection<ImageFile>();
+        foreach (var fileName in fileNameOrder)
+        {
+            var image = Images.FirstOrDefault(i => i.FileName == fileName);
+            if (image != null)
+                reorderedImages.Add(image);
+        }
+
+        // Add any images not in the order (shouldn't happen but safety check)
+        foreach (var image in Images)
+        {
+            if (!reorderedImages.Contains(image))
+                reorderedImages.Add(image);
+        }
+
+        Images = reorderedImages;
+        
+        // Update active to first image
+        if (Images.Count > 0)
+        {
+            foreach (var img in Images)
+                img.IsActive = false;
+            
+            Images[0].IsActive = true;
+            ActiveImage = Images[0];
+        }
+    }
+
+    /// <summary>
+    /// Marks or unmarks a specific image
+    /// </summary>
+    public void MarkImage(ImageFile? image)
+    {
+        if (image != null)
+        {
+            image.IsMarked = !image.IsMarked;
+            _loggingService.LogUserAction("Toggle image mark", $"File: {image.FileName}, Marked: {image.IsMarked}");
+        }
+    }
+
+    /// <summary>
+    /// Marks/unmarks the active image
+    /// </summary>
+    public void ToggleImageMark()
+    {
+        if (ActiveImage != null)
+        {
+            MarkImage(ActiveImage);
+        }
+    }
+
+    /// <summary>
+    /// Opens the slideshow view with the current images
+    /// </summary>
+    public void OpenSlideshow()
+    {
+        if (Images.Count == 0)
+            return;
+
+        try
+        {
+            var currentIndex = ActiveImage != null ? Images.IndexOf(ActiveImage) : 0;
+            var slideshowWindow = new Views.SlideshowWindow(Images.ToList(), currentIndex);
+            slideshowWindow.ShowDialog();
+
+            // Update image states after slideshow closes
+            var closedImages = slideshowWindow.GetImages();
+            foreach (var image in Images)
+            {
+                var closedImage = closedImages.FirstOrDefault(i => i.FilePath == image.FilePath);
+                if (closedImage != null)
+                {
+                    image.IsMarked = closedImage.IsMarked;
+                }
+            }
+
+            // Set the last viewed image as active
+            var lastImage = slideshowWindow.GetCurrentImage();
+            if (lastImage != null)
+            {
+                var activeImage = Images.FirstOrDefault(i => i.FilePath == lastImage.FilePath);
+                if (activeImage != null)
+                {
+                    activeImage.IsActive = true;
+                    ActiveImage = activeImage;
+                }
+            }
+
+            _loggingService.LogUserAction("Closed slideshow", $"Last viewed: {ActiveImage?.FileName}");
+        }
+        catch (Exception ex)
+        {
+            _loggingService.LogError("Failed to open slideshow", ex);
+        }
+    }
+
+    /// <summary>
+    /// Moves marked images to a destination folder
+    /// </summary>
+    public async Task MoveMarkedImagesAsync(string? destinationFolder)
+    {
+        if (string.IsNullOrEmpty(destinationFolder))
+            return;
+
+        try
+        {
+            var markedFiles = Images.Where(i => i.IsMarked).Select(i => i.FilePath).ToList();
+            
+            if (markedFiles.Count == 0)
+                return;
+
+            if (ActiveFolder?.FullPath == destinationFolder)
+            {
+                _loggingService.LogWarning("Source and destination folders are the same");
+                // TODO: Show error dialog
+                return;
+            }
+
+            await _fileSystemService.MoveFilesAsync(markedFiles, destinationFolder);
+            _loggingService.LogUserAction("Moved marked images", $"Count: {markedFiles.Count}, Destination: {destinationFolder}");
+
+            // Reload current folder to refresh view
+            if (ActiveFolder != null)
+            {
+                NavigateToFolder(ActiveFolder.FullPath);
+            }
+        }
+        catch (Exception ex)
+        {
+            _loggingService.LogError("Failed to move marked images", ex);
+        }
+    }
+
+    /// <summary>
+    /// Changes the thumbnail size and saves the setting
+    /// </summary>
+    public void SetThumbnailSize(string size)
+    {
+        ThumbnailSize = size;
+        _settingsService.UpdateSetting(s => { s.ThumbnailSize = size; });
+        _loggingService.LogUserAction("Changed thumbnail size", size);
+
+        // Regenerate thumbnails with the new size
+        if (Images.Count > 0)
+        {
+            _thumbnailService.CancelBackgroundGeneration();
+            _thumbnailService.SetThumbnailSize(size);
+            
+            // Clear existing thumbnail data and regenerate
+            foreach (var image in Images)
+            {
+                image.ThumbnailGenerated = false;
+                image.ThumbnailData = Array.Empty<byte>();
+            }
+
+            // Regenerate with new size
+            var visibleCount = 10; // TODO: Calculate based on UI size
+            _thumbnailService.GenerateThumbnailsAsync(Images.ToList(), visibleCount);
+        }
+    }
+
+    /// <summary>
+    /// Cleans up resources
+    /// </summary>
+    public void Dispose()
+    {
+        _fileSystemService.Dispose();
+        _thumbnailService.CancelBackgroundGeneration();
+    }
+}

@@ -1,0 +1,299 @@
+<Window x:Class="DaisyView.Views.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:DaisyView.Views"
+        Title="DaisyView - Image Viewer" 
+        Height="800" 
+        Width="1200"
+        Background="{StaticResource BackgroundBrush}"
+        Foreground="{StaticResource ForegroundBrush}"
+        WindowStartupLocation="CenterScreen">
+    
+    <Window.Resources>
+        <local:BoolToRedBrushConverter x:Key="BoolToRedBrushConverter" />
+        <local:ByteArrayToBitmapImageConverter x:Key="ByteArrayToBitmapImageConverter" />
+        
+        <!-- Expander Button Style -->
+        <Style x:Key="ExpanderButtonStyle" TargetType="ToggleButton">
+            <Setter Property="Focusable" Value="False" />
+            <Setter Property="Width" Value="16" />
+            <Setter Property="Height" Value="16" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ToggleButton">
+                        <Border Background="Transparent" Width="16" Height="16" SnapsToDevicePixels="True">
+                            <TextBlock Text="▶" Foreground="{StaticResource ForegroundBrush}" 
+                                      Margin="2,0,0,2" FontSize="10"
+                                      Name="Arrow"
+                                      RenderTransformOrigin="0.5,0.5">
+                                <TextBlock.RenderTransform>
+                                    <RotateTransform Angle="0" />
+                                </TextBlock.RenderTransform>
+                            </TextBlock>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Arrow" Property="RenderTransform">
+                                    <Setter.Value>
+                                        <RotateTransform Angle="90" />
+                                    </Setter.Value>
+                                </Setter>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+    
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="250" />
+            <ColumnDefinition Width="5" />
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+
+        <!-- LEFT PANEL: File System Tree View and Favorites -->
+        <Grid Grid.Column="0" Background="{StaticResource PanelBrush}">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="*" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="150" />
+            </Grid.RowDefinitions>
+
+            <!-- Tree View -->
+            <TreeView Grid.Row="0" 
+                      ItemsSource="{Binding RootNodes}"
+                      Background="{StaticResource PanelBrush}"
+                      Foreground="{StaticResource ForegroundBrush}"
+                      Name="FolderTreeView"
+                      SelectedItemChanged="TreeViewItem_SelectedItemChanged">
+                <TreeView.Resources>
+                    <Style TargetType="TreeViewItem">
+                        <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}" />
+                        <Setter Property="IsSelected" Value="{Binding IsActive, Mode=TwoWay}" />
+                        <Setter Property="Foreground" Value="{StaticResource ForegroundBrush}" />
+                        <Setter Property="Padding" Value="2" />
+                        <Setter Property="Margin" Value="0" />
+                        <Setter Property="OverridesDefaultStyle" Value="True" />
+                        <Setter Property="Template">
+                            <Setter.Value>
+                                <ControlTemplate TargetType="TreeViewItem">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="16" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="Auto" />
+                                        </Grid.RowDefinitions>
+                                        
+                                        <!-- Expander -->
+                                        <ToggleButton Grid.Column="0" Grid.Row="0" 
+                                                    Name="Expander"
+                                                    ClickMode="Press"
+                                                    IsChecked="{Binding IsExpanded, RelativeSource={RelativeSource TemplatedParent}}"
+                                                    Style="{StaticResource ExpanderButtonStyle}" />
+                                        
+                                        <!-- Header -->
+                                        <Border Grid.Column="1" Grid.Row="0"
+                                               Name="Bd"
+                                               Background="{TemplateBinding Background}"
+                                               Padding="{TemplateBinding Padding}"
+                                               SnapsToDevicePixels="True">
+                                            <ContentPresenter x:Name="PART_Header"
+                                                            ContentSource="Header"
+                                                            HorizontalAlignment="Left"
+                                                            VerticalAlignment="Center" />
+                                        </Border>
+                                        
+                                        <!-- Items -->
+                                        <ItemsPresenter Grid.Column="1" Grid.Row="1" x:Name="ItemsHost" />
+                                    </Grid>
+                                    
+                                    <ControlTemplate.Triggers>
+                                        <Trigger Property="IsExpanded" Value="False">
+                                            <Setter TargetName="ItemsHost" Property="Visibility" Value="Collapsed" />
+                                        </Trigger>
+                                        <Trigger Property="HasItems" Value="False">
+                                            <Setter TargetName="Expander" Property="Visibility" Value="Hidden" />
+                                        </Trigger>
+                                        <Trigger Property="IsSelected" Value="True">
+                                            <Setter TargetName="Bd" Property="Background" Value="{StaticResource AccentBrush}" />
+                                        </Trigger>
+                                        <Trigger Property="IsSelected" Value="False">
+                                            <Setter TargetName="Bd" Property="Background" Value="Transparent" />
+                                        </Trigger>
+                                    </ControlTemplate.Triggers>
+                                </ControlTemplate>
+                            </Setter.Value>
+                        </Setter>
+                        <EventSetter Event="Expanded" Handler="TreeViewItem_Expanded" />
+                        <Style.Triggers>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter Property="Foreground" Value="White" />
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="False">
+                                <Setter Property="Foreground" Value="{StaticResource ForegroundBrush}" />
+                            </Trigger>
+                        </Style.Triggers>
+                    </Style>
+                </TreeView.Resources>
+                <TreeView.ItemTemplate>
+                    <HierarchicalDataTemplate ItemsSource="{Binding Children}">
+                        <TextBlock Text="{Binding Name}" FontSize="13" Foreground="{Binding RelativeSource={RelativeSource AncestorType=TreeViewItem}, Path=Foreground}" />
+                    </HierarchicalDataTemplate>
+                </TreeView.ItemTemplate>
+            </TreeView>
+
+            <!-- Favorites Label -->
+            <TextBlock Grid.Row="1" 
+                       Text="Favorites" 
+                       Padding="10,5"
+                       FontWeight="Bold"
+                       Foreground="{StaticResource ForegroundBrush}" />
+
+            <!-- Favorites List -->
+            <ListBox Grid.Row="2" 
+                     ItemsSource="{Binding Favorites}"
+                     Background="{StaticResource BackgroundBrush}"
+                     Foreground="{StaticResource ForegroundBrush}"
+                     BorderBrush="{StaticResource BorderBrush}"
+                     SelectionChanged="FavoriteFolder_SelectionChanged" />
+        </Grid>
+
+        <!-- SPLITTER -->
+        <GridSplitter Grid.Column="1" 
+                      HorizontalAlignment="Stretch" 
+                      Background="{StaticResource BorderBrush}" />
+
+        <!-- RIGHT PANEL: Thumbnails and Controls -->
+        <Grid Grid.Column="2" Background="{StaticResource BackgroundBrush}">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+
+            <!-- TOP TOOLBAR -->
+            <StackPanel Grid.Row="0" 
+                        Orientation="Horizontal" 
+                        Background="{StaticResource PanelBrush}"
+                        Margin="10"
+                        Height="50">
+                
+                <!-- Thumbnail Size Selection -->
+                <TextBlock Text="Size:" 
+                           VerticalAlignment="Center" 
+                           Margin="0,0,5,0"
+                           Foreground="{StaticResource ForegroundBrush}" />
+                <ComboBox Name="SizeComboBox" 
+                          Width="100" 
+                          Height="35"
+                          VerticalAlignment="Center"
+                          Margin="0,0,20,0"
+                          Background="{StaticResource AccentBrush}"
+                          Foreground="White"
+                          SelectedValue="{Binding ThumbnailSize, Mode=TwoWay}"
+                          SelectedValuePath="Content"
+                          SelectionChanged="SizeComboBox_SelectionChanged">
+                    <ComboBoxItem>Small</ComboBoxItem>
+                    <ComboBoxItem>Medium</ComboBoxItem>
+                    <ComboBoxItem>Large</ComboBoxItem>
+                </ComboBox>
+
+                <!-- Slideshow Button -->
+                <Button Name="SlideshowButton" 
+                        Content="Slideshow" 
+                        Width="100"
+                        Height="35"
+                        Margin="0,0,10,0"
+                        Background="{StaticResource AccentBrush}"
+                        Foreground="White"
+                        Command="{Binding OpenSlideshowCommand}" />
+
+                <!-- Move To Button -->
+                <Button Name="MoveToButton" 
+                        Content="Move To" 
+                        Width="100"
+                        Height="35"
+                        Margin="0,0,10,0"
+                        Background="{StaticResource AccentBrush}"
+                        Foreground="White"
+                        Click="MoveToButton_Click"
+                        IsEnabled="{Binding MoveButtonEnabled, Mode=OneWay}" />
+
+                <!-- Random Toggle -->
+                <ToggleButton Name="RandomButton" 
+                              Content="Random" 
+                              Width="100"
+                              Height="35"
+                              Margin="0,0,10,0"
+                              IsChecked="{Binding RandomEnabled, Mode=TwoWay}"
+                              Command="{Binding ToggleRandomCommand}"
+                              Background="{StaticResource AccentBrush}"
+                              Foreground="White" />
+
+                <!-- Favorite Toggle -->
+                <ToggleButton Name="FavoriteButton" 
+                              Content="★ Favorite" 
+                              Width="100"
+                              Height="35"
+                              IsChecked="{Binding IsFavorite, Mode=TwoWay}"
+                              Command="{Binding ToggleFavoriteCommand}"
+                              Background="{StaticResource AccentBrush}"
+                              Foreground="White" />
+            </StackPanel>
+
+            <!-- THUMBNAIL VIEW -->
+            <Grid Grid.Row="1">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+                
+                <!-- Thumbnail count display -->
+                <TextBlock Grid.Row="0" 
+                           Text="{Binding Images.Count, StringFormat='Showing {0} thumbnail(s)'}"
+                           Foreground="{StaticResource ForegroundBrush}"
+                           Margin="10,5,10,5"
+                           FontSize="12" />
+                
+                <ScrollViewer Grid.Row="1" Background="{StaticResource BackgroundBrush}">
+                    <ItemsControl Name="ThumbnailPanel" 
+                                  ItemsSource="{Binding Images}"
+                                  Background="{StaticResource BackgroundBrush}"
+                                  Padding="10">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <WrapPanel Orientation="Horizontal" />
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Grid MouseLeftButtonDown="Thumbnail_MouseLeftButtonDown">
+                                    <Border BorderThickness="2" 
+                                            BorderBrush="{Binding IsActive, Converter={StaticResource BoolToRedBrushConverter}}"
+                                            Margin="5">
+                                        <Grid>
+                                            <Image Source="{Binding ThumbnailData, Converter={StaticResource ByteArrayToBitmapImageConverter}}" 
+                                                   Width="{Binding DataContext.ThumbnailSizePixels, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                   Height="{Binding DataContext.ThumbnailHeightPixels, RelativeSource={RelativeSource AncestorType=Window}}"
+                                                   Stretch="Uniform" />
+                                            <CheckBox IsChecked="{Binding IsMarked, Mode=TwoWay}"
+                                                      HorizontalAlignment="Right"
+                                                      VerticalAlignment="Top"
+                                                      Margin="5"
+                                                      Background="White" />
+                                        </Grid>
+                                    </Border>
+                                </Grid>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+            </Grid>
+        </Grid>
+    </Grid>
+</Window>

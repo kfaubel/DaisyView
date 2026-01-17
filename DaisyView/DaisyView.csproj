@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <UseWPF>true</UseWPF>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
+    <AssemblyName>DaisyView</AssemblyName>
+    <RootNamespace>DaisyView</RootNamespace>
+    <Version>1.0.0</Version>
+    <Title>DaisyView - Image Viewer</Title>
+    <Description>A feature-rich image viewer with file system navigation and slideshow capabilities</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- JSON serialization -->
+    <PackageReference Include="System.Text.Json" Version="8.0.5" />
+    
+    <!-- HTTP client for update checking -->
+    <PackageReference Include="System.Net.Http.Json" Version="8.0.0" />
+    
+    
+    <!-- Logging -->
+    <PackageReference Include="Serilog" Version="3.1.0" />
+    <PackageReference Include="Serilog.Sinks.File" Version="5.0.0" />
+    <PackageReference Include="Serilog.Sinks.Console" Version="5.0.0" />
+  </ItemGroup>
+
+</Project>
