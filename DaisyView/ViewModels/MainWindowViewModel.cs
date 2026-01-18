@@ -193,19 +193,20 @@ public class MainWindowViewModel : ViewModelBase
         _fileSystemService = new FileSystemService(_loggingService);
         _thumbnailService = new ThumbnailService(_loggingService);
 
-        LoadRootDrives();
+        LoadRootDrivesSync();
         LoadLastActiveFolder();
         LoadFavorites();
         LoadThumbnailSize();
     }
 
     /// <summary>
-    /// Loads the root drives into the tree view
+    /// Loads the root drives into the tree view synchronously but with per-drive timeouts
     /// </summary>
-    private void LoadRootDrives()
+    private void LoadRootDrivesSync()
     {
         try
         {
+            _loggingService.LogTrace("LoadRootDrives START");
             var drives = _fileSystemService.GetRootDrives();
             RootNodes = new ObservableCollection<TreeNode>(drives);
             _loggingService.LogTrace("Loaded {DriveCount} root drives", drives.Count);
@@ -213,6 +214,7 @@ public class MainWindowViewModel : ViewModelBase
         catch (Exception ex)
         {
             _loggingService.LogError("Failed to load root drives", ex);
+            RootNodes = new ObservableCollection<TreeNode>();
         }
     }
 
@@ -227,14 +229,25 @@ public class MainWindowViewModel : ViewModelBase
             var lastPath = _settingsService.GetLastActiveFolderPath();
             _loggingService.LogTrace("Last active folder from settings: {Path}", lastPath ?? "null");
             
-            if (lastPath != null && _fileSystemService.PathExists(lastPath))
+            if (!string.IsNullOrEmpty(lastPath))
             {
-                _loggingService.LogTrace("Path exists, calling NavigateToFolder");
-                NavigateToFolder(lastPath);
+                // Check path existence with a timeout to avoid hanging on network drives
+                var checkTask = Task.Run(() => _fileSystemService.PathExists(lastPath));
+                var pathExists = checkTask.Wait(TimeSpan.FromSeconds(2)) && checkTask.Result;
+                
+                if (pathExists)
+                {
+                    _loggingService.LogTrace("Path exists, calling NavigateToFolder");
+                    NavigateToFolder(lastPath);
+                }
+                else
+                {
+                    _loggingService.LogTrace("Path is unreachable or does not exist, using default");
+                }
             }
             else
             {
-                _loggingService.LogTrace("Path is null or does not exist");
+                _loggingService.LogTrace("Path is null");
             }
         }
         catch (Exception ex)
@@ -561,30 +574,58 @@ public class MainWindowViewModel : ViewModelBase
 
         try
         {
+            _loggingService.LogUserAction("Toggle random sort", $"Current state: {RandomEnabled}, Will be: {!RandomEnabled}");
+            _loggingService.LogTrace("Images count before toggle: {Count}", Images.Count);
+            _loggingService.LogTrace("Images before toggle: {Images}", string.Join(", ", Images.Select(i => i.FileName)));
+            
             RandomEnabled = !RandomEnabled;
-            _loggingService.LogUserAction("Toggle random sort", $"Enabled: {RandomEnabled}");
+            _loggingService.LogTrace("RandomEnabled is now: {RandomEnabled}", RandomEnabled);
 
             if (RandomEnabled)
             {
-                // Create random order
+                // Create random order using Fisher-Yates shuffle for better randomness
                 var fileNames = Images.Select(i => i.FileName).ToList();
-                var random = new Random();
-                var randomOrder = fileNames.OrderBy(_ => random.Next()).ToList();
+                _loggingService.LogTrace("Starting random shuffle with {Count} images", fileNames.Count);
+                _loggingService.LogTrace("Before shuffle (first 5): {Order}", string.Join(", ", fileNames.Take(5)));
+                
+                var randomOrder = fileNames.ToList();
+                
+                // Fisher-Yates shuffle using Random.Shared for better randomness
+                for (int i = randomOrder.Count - 1; i > 0; i--)
+                {
+                    int randomIndex = Random.Shared.Next(i + 1);
+                    // Swap
+                    var temp = randomOrder[i];
+                    randomOrder[i] = randomOrder[randomIndex];
+                    randomOrder[randomIndex] = temp;
+                }
 
+                _loggingService.LogTrace("After shuffle (first 5): {Order}", string.Join(", ", randomOrder.Take(5)));
+                _loggingService.LogTrace("Full random order: {RandomOrder}", string.Join(", ", randomOrder));
                 _settingsService.SaveRandomOrder(ActiveFolder.FullPath, randomOrder);
+                _loggingService.LogTrace("Calling ReorderImagesRandomly with {Count} items", randomOrder.Count);
                 ReorderImagesRandomly(randomOrder);
+                _loggingService.LogTrace("After ReorderImagesRandomly, Images: {Images}", string.Join(", ", Images.Select(i => i.FileName)));
+                
+                // Regenerate thumbnails in the new random order
+                var visibleCount = 10; // TODO: Calculate based on UI size
+                _loggingService.LogTrace("Regenerating thumbnails for {Count} images in random order", Images.Count);
+                _thumbnailService.GenerateThumbnailsAsync(Images.ToList(), visibleCount);
             }
             else
             {
                 // Clear random order
+                _loggingService.LogTrace("Disabling random order");
                 _settingsService.ClearRandomOrder(ActiveFolder.FullPath);
 
                 // Reload images in normal order
                 var images = _fileSystemService.GetImageFiles(ActiveFolder.FullPath);
+                _loggingService.LogTrace("Reloaded {Count} images in alphabetical order: {Images}", images.Count, string.Join(", ", images.Select(i => i.FileName)));
                 Images = new ObservableCollection<ImageFile>(images);
                 
                 // Generate thumbnails for the reloaded images
                 var visibleCount = 10; // TODO: Calculate based on UI size
+                _loggingService.LogTrace("Regenerating thumbnails for {Count} images in alphabetical order", Images.Count);
                 _thumbnailService.GenerateThumbnailsAsync(images, visibleCount);
                 
                 if (images.Count > 0)
@@ -605,22 +646,52 @@ public class MainWindowViewModel : ViewModelBase
     /// </summary>
     private void ReorderImagesRandomly(List<string> fileNameOrder)
     {
+        _loggingService.LogTrace("ReorderImagesRandomly called with {Count} items", fileNameOrder.Count);
+        _loggingService.LogTrace("Original order: {Order}", string.Join(", ", Images.Select(i => i.FileName)));
+        _loggingService.LogTrace("Target order: {Order}", string.Join(", ", fileNameOrder));
+
+        // Create a mapping of filename to image for fast lookup
+        var imageMap = Images.ToDictionary(i => i.FileName);
+        _loggingService.LogTrace("Created imageMap with {Count} items", imageMap.Count);
+        
+        // Create new collection in the specified order
         var reorderedImages = new ObservableCollection<ImageFile>();
         foreach (var fileName in fileNameOrder)
         {
-            var image = Images.FirstOrDefault(i => i.FileName == fileName);
-            if (image != null)
+            if (imageMap.TryGetValue(fileName, out var image))
+            {
                 reorderedImages.Add(image);
+                _loggingService.LogTrace("Added {FileName} to reordered collection", fileName);
+            }
+            else
+            {
+                _loggingService.LogWarning("Image not found for fileName: {FileName}", fileName);
+            }
         }
 
         // Add any images not in the order (shouldn't happen but safety check)
+        var missingCount = 0;
         foreach (var image in Images)
         {
             if (!reorderedImages.Contains(image))
+            {
+                _loggingService.LogWarning("Image not in reordered list, adding: {FileName}", image.FileName);
                 reorderedImages.Add(image);
+                missingCount++;
+            }
+        }
+        if (missingCount > 0)
+        {
+            _loggingService.LogWarning("Had to add {MissingCount} missing images to reordered collection", missingCount);
         }
 
+        _loggingService.LogTrace("Reordered images collection: {Order}", string.Join(", ", reorderedImages.Select(i => i.FileName)));
+        _loggingService.LogTrace("Final reordered images count: {Count}", reorderedImages.Count);
+
+        // Replace the entire collection to trigger UI refresh
+        _loggingService.LogTrace("Replacing Images collection with reordered collection");
         Images = reorderedImages;
+        _loggingService.LogTrace("Images collection replaced, new count: {Count}, new order: {Order}", Images.Count, string.Join(", ", Images.Select(i => i.FileName)));
         
         // Update active to first image
         if (Images.Count > 0)
@@ -630,6 +701,7 @@ public class MainWindowViewModel : ViewModelBase
             
             Images[0].IsActive = true;
             ActiveImage = Images[0];
+            _loggingService.LogTrace("Set first image as active: {FileName}", Images[0].FileName);
         }
     }
 

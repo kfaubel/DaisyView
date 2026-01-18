@@ -382,7 +382,7 @@
                               Height="40"
                               Margin="0,0,10,0"
                               ToolTip="Toggle random display"
-                              IsChecked="{Binding RandomEnabled, Mode=TwoWay}"
+                              IsChecked="{Binding RandomEnabled, Mode=OneWay}"
                               Command="{Binding ToggleRandomCommand}">
                     <ToggleButton.Style>
                         <Style TargetType="ToggleButton" BasedOn="{StaticResource IconToggleButtonStyle}">
@@ -422,6 +422,18 @@
                     </ToggleButton.Style>
                     <TextBlock Text="★" FontSize="28" Foreground="{Binding RelativeSource={RelativeSource AncestorType={x:Type ToggleButton}}, Path=Foreground, Mode=OneWay}" />
                 </ToggleButton>
+                
+                <!-- Help/About Button -->
+                <Button Name="HelpButton" 
+                        Width="40"
+                        Height="40"
+                        Margin="0,0,0,0"
+                        Foreground="White"
+                        Style="{StaticResource IconButtonStyle}"
+                        ToolTip="Help and about"
+                        Click="HelpButton_Click">
+                    <TextBlock Text="?" FontSize="24" Foreground="White" FontWeight="Bold" />
+                </Button>
                 </StackPanel>
             </DockPanel>
 

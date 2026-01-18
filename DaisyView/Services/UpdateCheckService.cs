@@ -33,6 +33,7 @@ public class UpdateCheckService
         {
             using var client = new HttpClient();
             client.DefaultRequestHeaders.Add("User-Agent", "DaisyView");
+            client.Timeout = TimeSpan.FromSeconds(2); // 2 second timeout to avoid blocking startup
 
             var url = $"{GitHubApiUrl}/repos/{_githubOwner}/{_githubRepo}/releases/latest";
             
@@ -53,6 +54,11 @@ public class UpdateCheckService
             }
 
             return release;
+        }
+        catch (TaskCanceledException)
+        {
+            _loggingService.LogInfo("Update check timed out (network issue or slow connection)");
+            return null;
         }
         catch (Exception ex)
         {

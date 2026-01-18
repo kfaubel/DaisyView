@@ -455,6 +455,16 @@ public partial class MainWindow : Window
             }
         }
     }
+
+    /// <summary>
+    /// Handles Help/About button click
+    /// </summary>
+    private void HelpButton_Click(object sender, RoutedEventArgs e)
+    {
+        var helpWindow = new HelpWindow();
+        helpWindow.Owner = this;
+        helpWindow.ShowDialog();
+    }
 }
 
 /// <summary>

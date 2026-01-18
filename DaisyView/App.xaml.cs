@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Media;
@@ -16,31 +17,50 @@ public partial class App : Application
     private SettingsService? _settingsService;
     private LoggingService? _loggingService;
     private UpdateCheckService? _updateCheckService;
+    private Stopwatch? _startupTimer;
 
     protected override void OnStartup(StartupEventArgs e)
     {
+        _startupTimer = Stopwatch.StartNew();
         base.OnStartup(e);
 
         try
         {
+            LogStartupTime("Application OnStartup started");
+
             // Initialize services
             _settingsService = new SettingsService();
+            LogStartupTime("SettingsService initialized");
+            
             _loggingService = new LoggingService(_settingsService);
+            LogStartupTime("LoggingService initialized");
+            
             _updateCheckService = new UpdateCheckService(_loggingService);
+            LogStartupTime("UpdateCheckService initialized");
 
             _loggingService.LogInfo("=== DaisyView Application Started ===");
 
             // Apply theme
             ApplyTheme();
+            LogStartupTime("Theme applied");
 
             // Check for updates on startup
             _ = CheckForUpdatesAsync();
+            LogStartupTime("Update check initiated");
         }
         catch (Exception ex)
         {
             MessageBox.Show($"Failed to initialize application: {ex.Message}", "Startup Error", 
                 MessageBoxButton.OK, MessageBoxImage.Error);
             Shutdown();
+        }
+    }
+
+    private void LogStartupTime(string message)
+    {
+        if (_startupTimer != null)
+        {
+            _loggingService?.LogInfo("[STARTUP] {Message} - {ElapsedMs}ms", message, _startupTimer.ElapsedMilliseconds);
         }
     }
 
@@ -118,39 +138,46 @@ public partial class App : Application
     }
 
     /// <summary>
-    /// Checks for updates asynchronously
+    /// Checks for updates asynchronously without blocking UI startup
     /// </summary>
     private async Task CheckForUpdatesAsync()
     {
         if (_updateCheckService == null)
             return;
 
-        var latestRelease = await _updateCheckService.CheckForUpdatesAsync();
-        
-        if (latestRelease != null)
+        try
         {
-            var currentVersion = "1.0.0"; // TODO: Read from assembly version
+            var latestRelease = await _updateCheckService.CheckForUpdatesAsync();
             
-            if (UpdateCheckService.IsNewerVersion(currentVersion, latestRelease.TagName ?? ""))
+            if (latestRelease != null)
             {
-                MainWindow?.Dispatcher.Invoke(() =>
+                var currentVersion = "1.0.0"; // TODO: Read from assembly version
+                
+                if (UpdateCheckService.IsNewerVersion(currentVersion, latestRelease.TagName ?? ""))
                 {
-                    var result = MessageBox.Show(
-                        $"A new version of DaisyView is available: {latestRelease.TagName}\n\n{latestRelease.Body}\n\nWould you like to update?",
-                        "Update Available",
-                        MessageBoxButton.YesNo,
-                        MessageBoxImage.Information);
-
-                    if (result == MessageBoxResult.Yes)
+                    MainWindow?.Dispatcher.Invoke(() =>
                     {
-                        var downloadUrl = _updateCheckService.GetDownloadUrl(latestRelease.TagName ?? "");
-                        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(downloadUrl) 
-                        { 
-                            UseShellExecute = true 
-                        });
-                    }
-                });
+                        var result = MessageBox.Show(
+                            $"A new version of DaisyView is available: {latestRelease.TagName}\n\n{latestRelease.Body}\n\nWould you like to update?",
+                            "Update Available",
+                            MessageBoxButton.YesNo,
+                            MessageBoxImage.Information);
+
+                        if (result == MessageBoxResult.Yes)
+                        {
+                            var downloadUrl = _updateCheckService.GetDownloadUrl(latestRelease.TagName ?? "");
+                            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(downloadUrl) 
+                            { 
+                                UseShellExecute = true 
+                            });
+                        }
+                    });
+                }
             }
+        }
+        catch (Exception ex)
+        {
+            _loggingService?.LogWarning("Error during update check: {Message}", ex.Message);
         }
     }
 }

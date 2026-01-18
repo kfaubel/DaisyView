@@ -36,8 +36,20 @@ public class FileSystemService
         {
             foreach (var drive in DriveInfo.GetDrives())
             {
-                // Skip hidden or inaccessible drives
-                if (!drive.IsReady)
+                // Check if drive is ready with a timeout to avoid hanging on network/disconnected drives
+                bool isReady = false;
+                try
+                {
+                    var checkTask = Task.Run(() => drive.IsReady);
+                    isReady = checkTask.Wait(TimeSpan.FromSeconds(1)) && checkTask.Result;
+                }
+                catch
+                {
+                    // If checking fails, assume not ready
+                    isReady = false;
+                }
+
+                if (!isReady)
                     continue;
 
                 var node = new TreeNode

@@ -1,0 +1,246 @@
+<Window x:Class="DaisyView.Views.HelpWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Help - DaisyView" 
+        Width="700" 
+        Height="800"
+        WindowStartupLocation="CenterOwner">
+    <Window.Resources>
+        <Style TargetType="Hyperlink">
+            <Setter Property="Foreground" Value="#0066CC" />
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Foreground" Value="#0099FF" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+    </Window.Resources>
+    
+    <ScrollViewer Background="#F5F5F5" VerticalScrollBarVisibility="Auto">
+        <StackPanel Margin="20">
+            <!-- About Section -->
+            <Border BorderBrush="#CCCCCC" BorderThickness="1" CornerRadius="8" Background="White" Padding="20" Margin="0,0,0,20">
+                <StackPanel>
+                    <TextBlock Text="About DaisyView" FontSize="18" FontWeight="Bold" Foreground="#333333" Margin="0,0,0,10" />
+                    <TextBlock Text="DaisyView is a lightweight image viewer for browsing and organizing image collections." 
+                               TextWrapping="Wrap" 
+                               Foreground="#555555"
+                               Margin="0,0,0,10" />
+                    
+                    <StackPanel Margin="0,10,0,0">
+                        <TextBlock FontSize="12" Foreground="#666666" Margin="0,0,0,4">
+                            <Run FontWeight="Bold">Version:</Run>
+                            <Run x:Name="VersionText">1.0.0</Run>
+                        </TextBlock>
+                        <TextBlock FontSize="12" Foreground="#666666" Margin="0,0,0,4">
+                            <Run FontWeight="Bold">Author:</Run>
+                            <Run>Ken Faubel</Run>
+                        </TextBlock>
+                        <TextBlock FontSize="12" Foreground="#666666" Margin="0,0,0,4">
+                            <Run FontWeight="Bold">Copyright:</Run>
+                            <Run>© 2025 Ken Faubel. All rights reserved.</Run>
+                        </TextBlock>
+                        <TextBlock FontSize="12" Foreground="#666666" Margin="0,8,0,0">
+                            <Run FontWeight="Bold">License:</Run>
+                            <Run>MIT License - Open Source</Run>
+                        </TextBlock>
+                    </StackPanel>
+
+                    <StackPanel Margin="0,12,0,0">
+                        <TextBlock Margin="0,0,0,8">
+                            <Hyperlink NavigateUri="https://github.com/kfaubel/DaisyView" 
+                                       RequestNavigate="Hyperlink_RequestNavigate">
+                                🔗 GitHub Repository
+                            </Hyperlink>
+                        </TextBlock>
+                        <TextBlock Margin="0,0,0,8">
+                            <Hyperlink NavigateUri="https://github.com/kfaubel/DaisyView/releases" 
+                                       RequestNavigate="Hyperlink_RequestNavigate">
+                                📦 Releases Page
+                            </Hyperlink>
+                        </TextBlock>
+                        <TextBlock>
+                            <Hyperlink NavigateUri="https://github.com/kfaubel/DaisyView/issues" 
+                                       RequestNavigate="Hyperlink_RequestNavigate">
+                                💬 Feedback &amp; Issues
+                            </Hyperlink>
+                        </TextBlock>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <!-- Toolbar Commands Section -->
+            <Border BorderBrush="#CCCCCC" BorderThickness="1" CornerRadius="8" Background="White" Padding="20" Margin="0,0,0,20">
+                <StackPanel>
+                    <TextBlock Text="Toolbar Commands (Left to Right)" FontSize="18" FontWeight="Bold" Foreground="#333333" Margin="0,0,0,12" />
+                    
+                    <!-- Thumbnail Size Buttons -->
+                    <StackPanel Margin="0,0,0,12">
+                        <TextBlock FontSize="12" FontWeight="Bold" Foreground="#333333" Margin="0,0,0,4">
+                            <Run>■ ◼ ■ Thumbnail Sizes (Small, Medium, Large)</Run>
+                        </TextBlock>
+                        <TextBlock Text="Adjust the size of image thumbnails displayed in the view" TextWrapping="Wrap" Foreground="#666666" FontSize="11" Margin="20,0,0,0" />
+                    </StackPanel>
+
+                    <!-- Copy Button -->
+                    <StackPanel Margin="0,0,0,12">
+                        <TextBlock FontSize="12" FontWeight="Bold" Foreground="#333333" Margin="0,0,0,4">
+                            <Run>📑 Copy</Run>
+                        </TextBlock>
+                        <TextBlock Text="Copy marked images to clipboard" TextWrapping="Wrap" Foreground="#666666" FontSize="11" Margin="20,0,0,0" />
+                    </StackPanel>
+
+                    <!-- Cut Button -->
+                    <StackPanel Margin="0,0,0,12">
+                        <TextBlock FontSize="12" FontWeight="Bold" Foreground="#333333" Margin="0,0,0,4">
+                            <Run>✂ Cut</Run>
+                        </TextBlock>
+                        <TextBlock Text="Cut marked images (move to clipboard)" TextWrapping="Wrap" Foreground="#666666" FontSize="11" Margin="20,0,0,0" />
+                    </StackPanel>
+
+                    <!-- Paste Button -->
+                    <StackPanel Margin="0,0,0,12">
+                        <TextBlock FontSize="12" FontWeight="Bold" Foreground="#333333" Margin="0,0,0,4">
+                            <Run>📋 Paste</Run>
+                        </TextBlock>
+                        <TextBlock Text="Paste images from clipboard into current folder" TextWrapping="Wrap" Foreground="#666666" FontSize="11" Margin="20,0,0,0" />
+                    </StackPanel>
+
+                    <!-- Delete Button -->
+                    <StackPanel Margin="0,0,0,12">
+                        <TextBlock FontSize="12" FontWeight="Bold" Foreground="#333333" Margin="0,0,0,4">
+                            <Run>🗑 Delete</Run>
+                        </TextBlock>
+                        <TextBlock Text="Move marked images to recycle bin" TextWrapping="Wrap" Foreground="#666666" FontSize="11" Margin="20,0,0,0" />
+                    </StackPanel>
+
+                    <!-- Random Toggle -->
+                    <StackPanel Margin="0,0,0,12">
+                        <TextBlock FontSize="12" FontWeight="Bold" Foreground="#333333" Margin="0,0,0,4">
+                            <Run>🔀 Random</Run>
+                        </TextBlock>
+                        <TextBlock Text="Toggle random order for images (turns gold when active)" TextWrapping="Wrap" Foreground="#666666" FontSize="11" Margin="20,0,0,0" />
+                    </StackPanel>
+
+                    <!-- Favorite Toggle -->
+                    <StackPanel Margin="0,0,0,12">
+                        <TextBlock FontSize="12" FontWeight="Bold" Foreground="#333333" Margin="0,0,0,4">
+                            <Run>★ Favorite</Run>
+                        </TextBlock>
+                        <TextBlock Text="Mark current folder as favorite (turns gold when active)" TextWrapping="Wrap" Foreground="#666666" FontSize="11" Margin="20,0,0,0" />
+                    </StackPanel>
+
+                    <!-- Slideshow Button -->
+                    <StackPanel Margin="0,0,0,12">
+                        <TextBlock FontSize="12" FontWeight="Bold" Foreground="#333333" Margin="0,0,0,4">
+                            <Run>⛶ Slideshow</Run>
+                        </TextBlock>
+                        <TextBlock Text="Start slideshow of images in current folder" TextWrapping="Wrap" Foreground="#666666" FontSize="11" Margin="20,0,0,0" />
+                    </StackPanel>
+
+                    <!-- Help Button -->
+                    <StackPanel>
+                        <TextBlock FontSize="12" FontWeight="Bold" Foreground="#333333" Margin="0,0,0,4">
+                            <Run>? Help</Run>
+                        </TextBlock>
+                        <TextBlock Text="Display this help and about information" TextWrapping="Wrap" Foreground="#666666" FontSize="11" Margin="20,0,0,0" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <!-- Image Checkbox Section -->
+            <Border BorderBrush="#CCCCCC" BorderThickness="1" CornerRadius="8" Background="White" Padding="20" Margin="0,0,0,20">
+                <StackPanel>
+                    <TextBlock Text="Image Selection" FontSize="18" FontWeight="Bold" Foreground="#333333" Margin="0,0,0,12" />
+                    <TextBlock TextWrapping="Wrap" Foreground="#555555" Margin="0,0,0,0">
+                        <Run>Each thumbnail has a checkbox in the top-right corner. Click the checkbox to mark or unmark an image. Marked images are selected for operations like copy, cut, and delete.</Run>
+                    </TextBlock>
+                </StackPanel>
+            </Border>
+
+            <!-- Keyboard Shortcuts Section -->
+            <Border BorderBrush="#CCCCCC" BorderThickness="1" CornerRadius="8" Background="White" Padding="20" Margin="0,0,0,20">
+                <StackPanel>
+                    <TextBlock Text="Keyboard Shortcuts" FontSize="18" FontWeight="Bold" Foreground="#333333" Margin="0,0,0,12" />
+                    
+                    <TextBlock Text="General Shortcuts" FontSize="14" FontWeight="Bold" Foreground="#555555" Margin="0,0,0,8" />
+                    <Grid Margin="0,0,0,16">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="120" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+
+                        <TextBlock Grid.Row="0" Grid.Column="0" FontSize="11" FontWeight="Bold" Foreground="#333333" Margin="0,0,0,4">Ctrl+C</TextBlock>
+                        <TextBlock Grid.Row="0" Grid.Column="1" FontSize="11" Foreground="#666666" Margin="0,0,0,4">Copy marked images</TextBlock>
+
+                        <TextBlock Grid.Row="1" Grid.Column="0" FontSize="11" FontWeight="Bold" Foreground="#333333" Margin="0,0,0,4">Ctrl+X</TextBlock>
+                        <TextBlock Grid.Row="1" Grid.Column="1" FontSize="11" Foreground="#666666" Margin="0,0,0,4">Cut marked images</TextBlock>
+
+                        <TextBlock Grid.Row="2" Grid.Column="0" FontSize="11" FontWeight="Bold" Foreground="#333333" Margin="0,0,0,4">Ctrl+V</TextBlock>
+                        <TextBlock Grid.Row="2" Grid.Column="1" FontSize="11" Foreground="#666666" Margin="0,0,0,4">Paste images</TextBlock>
+
+                        <TextBlock Grid.Row="3" Grid.Column="0" FontSize="11" FontWeight="Bold" Foreground="#333333" Margin="0,0,0,4">Delete</TextBlock>
+                        <TextBlock Grid.Row="3" Grid.Column="1" FontSize="11" Foreground="#666666" Margin="0,0,0,4">Delete marked images</TextBlock>
+
+                        <TextBlock Grid.Row="4" Grid.Column="0" FontSize="11" FontWeight="Bold" Foreground="#333333" Margin="0,0,0,4">Space</TextBlock>
+                        <TextBlock Grid.Row="4" Grid.Column="1" FontSize="11" Foreground="#666666" Margin="0,0,0,4">Mark/unmark current image</TextBlock>
+
+                        <TextBlock Grid.Row="5" Grid.Column="0" FontSize="11" FontWeight="Bold" Foreground="#333333">F11</TextBlock>
+                        <TextBlock Grid.Row="5" Grid.Column="1" FontSize="11" Foreground="#666666">Toggle fullscreen mode</TextBlock>
+                    </Grid>
+
+                    <TextBlock Text="Slideshow Mode Shortcuts" FontSize="14" FontWeight="Bold" Foreground="#555555" Margin="0,12,0,8" />
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="120" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+
+                        <TextBlock Grid.Row="0" Grid.Column="0" FontSize="11" FontWeight="Bold" Foreground="#333333" Margin="0,0,0,4">Right Arrow</TextBlock>
+                        <TextBlock Grid.Row="0" Grid.Column="1" FontSize="11" Foreground="#666666" Margin="0,0,0,4">Next image</TextBlock>
+
+                        <TextBlock Grid.Row="1" Grid.Column="0" FontSize="11" FontWeight="Bold" Foreground="#333333" Margin="0,0,0,4">Left Arrow</TextBlock>
+                        <TextBlock Grid.Row="1" Grid.Column="1" FontSize="11" Foreground="#666666" Margin="0,0,0,4">Previous image</TextBlock>
+
+                        <TextBlock Grid.Row="2" Grid.Column="0" FontSize="11" FontWeight="Bold" Foreground="#333333" Margin="0,0,0,4">Space</TextBlock>
+                        <TextBlock Grid.Row="2" Grid.Column="1" FontSize="11" Foreground="#666666" Margin="0,0,0,4">Play/pause slideshow</TextBlock>
+
+                        <TextBlock Grid.Row="3" Grid.Column="0" FontSize="11" FontWeight="Bold" Foreground="#333333" Margin="0,0,0,4">Escape / F11</TextBlock>
+                        <TextBlock Grid.Row="3" Grid.Column="1" FontSize="11" Foreground="#666666" Margin="0,0,0,4">Exit fullscreen</TextBlock>
+
+                        <TextBlock Grid.Row="4" Grid.Column="0" FontSize="11" FontWeight="Bold" Foreground="#333333">F</TextBlock>
+                        <TextBlock Grid.Row="4" Grid.Column="1" FontSize="11" Foreground="#666666">Fit to window</TextBlock>
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+            <!-- Close Button -->
+            <Button Content="Close" 
+                    Width="100"
+                    Height="40"
+                    HorizontalAlignment="Center"
+                    Click="CloseButton_Click"
+                    Background="#0066CC"
+                    Foreground="White"
+                    FontSize="14"
+                    FontWeight="Bold"
+                    Margin="0,20,0,0" />
+        </StackPanel>
+    </ScrollViewer>
+</Window>
