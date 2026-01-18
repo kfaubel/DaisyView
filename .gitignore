@@ -1,0 +1,59 @@
+# Build results
+bin/
+obj/
+*.dll
+*.exe
+*.pdb
+
+# Visual Studio
+.vs/
+.vscode/
+*.user
+*.sln.docstates
+*.suo
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+
+# IDE
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Local files
+local.settings.json
+*.log
+
+# Build artifacts
+publish/
+PublishProfiles/
+
+# Generated files
+*.g.cs
+*.g.i.cs
+
+# NuGet
+.nuget/
+packages/
+*.nupkg
+*.snupkg
+
+# Test Results
+TestResults/
+.testlog
+
+# MSBuild
+*.metaproj
+
+# Windows
+Thumbs.db
+Desktop.ini

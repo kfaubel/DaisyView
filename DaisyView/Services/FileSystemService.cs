@@ -225,51 +225,6 @@ public class FileSystemService
     }
 
     /// <summary>
-    /// Moves files to a destination folder
-    /// </summary>
-    public Task MoveFilesAsync(List<string> sourceFiles, string destinationFolder)
-    {
-        var startTime = DateTime.UtcNow;
-
-        try
-        {
-            Directory.CreateDirectory(destinationFolder);
-
-            foreach (var sourceFile in sourceFiles)
-            {
-                var fileName = Path.GetFileName(sourceFile);
-                var destFile = Path.Combine(destinationFolder, fileName);
-
-                // Handle file name conflicts
-                if (File.Exists(destFile))
-                {
-                    var nameWithoutExt = Path.GetFileNameWithoutExtension(sourceFile);
-                    var ext = Path.GetExtension(sourceFile);
-                    int counter = 1;
-                    
-                    while (File.Exists(destFile))
-                    {
-                        destFile = Path.Combine(destinationFolder, $"{nameWithoutExt} ({counter}){ext}");
-                        counter++;
-                    }
-                }
-
-                File.Move(sourceFile, destFile, overwrite: false);
-                _loggingService.LogUserAction("File moved", $"From: {sourceFile} To: {destFile}");
-            }
-
-            var duration = (DateTime.UtcNow - startTime).TotalMilliseconds;
-            _loggingService.LogFileSystemOperation("MoveFiles", destinationFolder, (long)duration);
-            return Task.CompletedTask;
-        }
-        catch (Exception ex)
-        {
-            _loggingService.LogError("Failed to move files to {DestinationFolder}", ex, destinationFolder);
-            throw;
-        }
-    }
-
-    /// <summary>
     /// Moves files to trash/recycle bin
     /// </summary>
     public Task DeleteFilesAsync(List<string> files)

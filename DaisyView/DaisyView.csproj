@@ -7,11 +7,13 @@
     <UseWPF>true</UseWPF>
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <AssemblyName>DaisyView</AssemblyName>
     <RootNamespace>DaisyView</RootNamespace>
     <Version>1.0.0</Version>
     <Title>DaisyView - Image Viewer</Title>
     <Description>A feature-rich image viewer with file system navigation and slideshow capabilities</Description>
+    <ApplicationIcon>daisy-icon.ico</ApplicationIcon>
   </PropertyGroup>
 
   <ItemGroup>

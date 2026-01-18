@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
@@ -40,10 +41,33 @@ public partial class MainWindow : Window
         EventManager.RegisterClassHandler(typeof(Grid), Control.MouseDoubleClickEvent,
             new MouseButtonEventHandler(Thumbnail_MouseDoubleClick), handledEventsToo: true);
 
-        // Subscribe to changes in ActiveImage to scroll it into view
+        // Subscribe to changes in the ViewModel
         if (_viewModel != null)
         {
             _viewModel.PropertyChanged += ViewModel_PropertyChanged;
+            // Check clipboard initially
+            UpdateClipboardStatus();
+            // Set initial size button color
+            UpdateSizeButtonColors(_viewModel.ThumbnailSize);
+        }
+    }
+
+    /// <summary>
+    /// Updates the clipboard content status in the ViewModel
+    /// </summary>
+    private void UpdateClipboardStatus()
+    {
+        if (_viewModel != null)
+        {
+            try
+            {
+                var data = System.Windows.Clipboard.GetDataObject();
+                _viewModel.HasClipboardContent = data != null && data.GetDataPresent(DataFormats.FileDrop);
+            }
+            catch
+            {
+                _viewModel.HasClipboardContent = false;
+            }
         }
     }
 
@@ -199,55 +223,237 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Handles thumbnail size selection
+    /// Handles small size button click
     /// </summary>
-    private void SizeComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    private void SmallSizeButton_Click(object sender, RoutedEventArgs e)
     {
-        if (_viewModel != null && SizeComboBox.SelectedItem is ComboBoxItem item)
-        {
-            var sizeText = item.Content?.ToString();
-            if (sizeText != null)
-            {
-                _viewModel.SetThumbnailSize(sizeText);
-            }
-        }
+        _viewModel?.SetThumbnailSize("Small");
+        UpdateSizeButtonColors("Small");
     }
 
     /// <summary>
-    /// Handles the Move To button click
+    /// Handles medium size button click
     /// </summary>
-    private void MoveToButton_Click(object sender, RoutedEventArgs e)
+    private void MediumSizeButton_Click(object sender, RoutedEventArgs e)
+    {
+        _viewModel?.SetThumbnailSize("Medium");
+        UpdateSizeButtonColors("Medium");
+    }
+
+    /// <summary>
+    /// Handles large size button click
+    /// </summary>
+    private void LargeSizeButton_Click(object sender, RoutedEventArgs e)
+    {
+        _viewModel?.SetThumbnailSize("Large");
+        UpdateSizeButtonColors("Large");
+    }
+
+    /// <summary>
+    /// Updates the size button colors - active size is gold, others are white
+    /// </summary>
+    private void UpdateSizeButtonColors(string activeSize)
+    {
+        if (SmallSizeButton != null)
+            SmallSizeButton.Foreground = activeSize == "Small" 
+                ? new System.Windows.Media.SolidColorBrush(System.Windows.Media.Colors.Gold)
+                : new System.Windows.Media.SolidColorBrush(System.Windows.Media.Colors.White);
+
+        if (MediumSizeButton != null)
+            MediumSizeButton.Foreground = activeSize == "Medium"
+                ? new System.Windows.Media.SolidColorBrush(System.Windows.Media.Colors.Gold)
+                : new System.Windows.Media.SolidColorBrush(System.Windows.Media.Colors.White);
+
+        if (LargeSizeButton != null)
+            LargeSizeButton.Foreground = activeSize == "Large"
+                ? new System.Windows.Media.SolidColorBrush(System.Windows.Media.Colors.Gold)
+                : new System.Windows.Media.SolidColorBrush(System.Windows.Media.Colors.White);
+    }
+
+    /// <summary>
+    /// Handles the Copy button click - copies marked images to clipboard
+    /// </summary>
+    private void CopyButton_Click(object sender, RoutedEventArgs e)
     {
         if (_viewModel == null)
             return;
 
-        // Create a temporary file system service for the dialog
-        var settingsService = new SettingsService();
-        var loggingService = new LoggingService(settingsService);
-        var fileSystemService = new FileSystemService(loggingService);
-
-        var moveDialog = new MoveToDialog(fileSystemService)
+        var markedFiles = _viewModel.Images.Where(i => i.IsMarked).Select(i => i.FilePath).ToList();
+        if (markedFiles.Count == 0)
         {
-            Owner = this
-        };
-
-        if (moveDialog.ShowDialog() == true)
-        {
-            if (moveDialog.MoveToTrash)
-            {
-                // TODO: Move to trash instead of permanent delete
-                var markedFiles = _viewModel.Images.Where(i => i.IsMarked).Select(i => i.FilePath).ToList();
-                // For now, we'll implement permanent delete - trash functionality can be added later
-                _ = fileSystemService.DeleteFilesAsync(markedFiles);
-            }
-            else if (moveDialog.SelectedPath != null)
-            {
-                _viewModel.MoveMarkedImagesCommand.Execute(moveDialog.SelectedPath);
-            }
+            _viewModel.StatusMessage = "No images marked for copying.";
+            return;
         }
 
-        fileSystemService.Dispose();
-        loggingService.Dispose();
+        try
+        {
+            var fileCollection = new System.Collections.Specialized.StringCollection();
+            fileCollection.AddRange(markedFiles.ToArray());
+            
+            var data = new DataObject();
+            data.SetFileDropList(fileCollection);
+            System.Windows.Clipboard.SetDataObject(data);
+            
+            UpdateClipboardStatus();
+            _viewModel.StatusMessage = $"Copied {markedFiles.Count} image(s) to clipboard.";
+        }
+        catch (Exception ex)
+        {
+            _viewModel.StatusMessage = $"Error copying files: {ex.Message}";
+        }
+    }
+
+    /// <summary>
+    /// Handles the Cut button click - cuts marked images to clipboard
+    /// </summary>
+    private void CutButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_viewModel == null)
+            return;
+
+        var markedFiles = _viewModel.Images.Where(i => i.IsMarked).Select(i => i.FilePath).ToList();
+        if (markedFiles.Count == 0)
+        {
+            _viewModel.StatusMessage = "No images marked for cutting.";
+            return;
+        }
+
+        try
+        {
+            var fileCollection = new System.Collections.Specialized.StringCollection();
+            fileCollection.AddRange(markedFiles.ToArray());
+            
+            var data = new DataObject();
+            data.SetFileDropList(fileCollection);
+            System.Windows.Clipboard.SetDataObject(data);
+            
+            UpdateClipboardStatus();
+            _viewModel.StatusMessage = $"Cut {markedFiles.Count} image(s) to clipboard.";
+        }
+        catch (Exception ex)
+        {
+            _viewModel.StatusMessage = $"Error cutting files: {ex.Message}";
+        }
+    }
+
+    /// <summary>
+    /// Handles the Paste button click - pastes images from clipboard to current folder
+    /// </summary>
+    private void PasteButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_viewModel == null || _viewModel.ActiveFolder == null)
+        {
+            if (_viewModel != null)
+            {
+                _viewModel.StatusMessage = "No folder selected for pasting.";
+            }
+            return;
+        }
+
+        try
+        {
+            var data = System.Windows.Clipboard.GetDataObject();
+            if (data == null || !data.GetDataPresent(DataFormats.FileDrop))
+            {
+                _viewModel.StatusMessage = "No files in clipboard.";
+                UpdateClipboardStatus();
+                return;
+            }
+
+            var files = data.GetData(DataFormats.FileDrop) as string[];
+            if (files == null || files.Length == 0)
+            {
+                _viewModel.StatusMessage = "No files in clipboard.";
+                UpdateClipboardStatus();
+                return;
+            }
+
+            // Copy files to the current folder
+            var destFolder = _viewModel.ActiveFolder.FullPath;
+            int copiedCount = 0;
+
+            foreach (var filePath in files)
+            {
+                try
+                {
+                    if (File.Exists(filePath))
+                    {
+                        var fileName = Path.GetFileName(filePath);
+                        var destPath = Path.Combine(destFolder, fileName);
+                        
+                        // Handle duplicate filenames
+                        if (File.Exists(destPath))
+                        {
+                            var nameWithoutExt = Path.GetFileNameWithoutExtension(filePath);
+                            var ext = Path.GetExtension(filePath);
+                            int count = 1;
+                            while (File.Exists(destPath))
+                            {
+                                destPath = Path.Combine(destFolder, $"{nameWithoutExt}_{count}{ext}");
+                                count++;
+                            }
+                        }
+
+                        File.Copy(filePath, destPath, overwrite: true);
+                        copiedCount++;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _viewModel.StatusMessage = $"Error copying {Path.GetFileName(filePath)}: {ex.Message}";
+                }
+            }
+
+            _viewModel.StatusMessage = $"Pasted {copiedCount} image(s).";
+            UpdateClipboardStatus();
+            _viewModel.NavigateToFolder(_viewModel.ActiveFolder.FullPath);
+        }
+        catch (Exception ex)
+        {
+            _viewModel.StatusMessage = $"Error pasting files: {ex.Message}";
+        }
+    }
+
+    /// <summary>
+    /// Handles the Delete button click - moves marked images to recycle bin
+    /// </summary>
+    private void DeleteButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_viewModel == null)
+            return;
+
+        var markedFiles = _viewModel.Images.Where(i => i.IsMarked).Select(i => i.FilePath).ToList();
+        if (markedFiles.Count == 0)
+        {
+            _viewModel.StatusMessage = "No images marked for deletion.";
+            return;
+        }
+
+        var result = MessageBox.Show($"Move {markedFiles.Count} image(s) to recycle bin?", "Confirm Delete", MessageBoxButton.YesNo, MessageBoxImage.Question);
+        
+        if (result == MessageBoxResult.Yes)
+        {
+            try
+            {
+                foreach (var filePath in markedFiles)
+                {
+                    if (File.Exists(filePath))
+                    {
+                        // Send to recycle bin using Windows Shell
+                        Microsoft.VisualBasic.FileIO.FileSystem.DeleteFile(filePath, 
+                            Microsoft.VisualBasic.FileIO.UIOption.OnlyErrorDialogs,
+                            Microsoft.VisualBasic.FileIO.RecycleOption.SendToRecycleBin);
+                    }
+                }
+
+                _viewModel.StatusMessage = $"Moved {markedFiles.Count} image(s) to recycle bin.";
+                _viewModel.NavigateToFolder(_viewModel.ActiveFolder?.FullPath);
+            }
+            catch (Exception ex)
+            {
+                _viewModel.StatusMessage = $"Error deleting files: {ex.Message}";
+            }
+        }
     }
 }
 
@@ -270,6 +476,7 @@ public class BoolToRedBrushConverter : System.Windows.Data.IValueConverter
         throw new NotImplementedException();
     }
 }
+
 /// <summary>
 /// Value converter to convert byte array thumbnail data to BitmapImage
 /// </summary>
@@ -295,6 +502,26 @@ public class ByteArrayToBitmapImageConverter : System.Windows.Data.IValueConvert
             }
         }
         return null;
+    }
+
+    public object ConvertBack(object value, System.Type targetType, object parameter, System.Globalization.CultureInfo culture)
+    {
+        throw new NotImplementedException();
+    }
+}
+
+/// <summary>
+/// Value converter to convert boolean to white or gray brush
+/// </summary>
+public class BoolToBrushConverter : System.Windows.Data.IValueConverter
+{
+    public object Convert(object value, System.Type targetType, object parameter, System.Globalization.CultureInfo culture)
+    {
+        if (value is bool isEnabled && isEnabled)
+        {
+            return new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(255, 255, 255));
+        }
+        return new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(102, 102, 102));
     }
 
     public object ConvertBack(object value, System.Type targetType, object parameter, System.Globalization.CultureInfo culture)

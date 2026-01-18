@@ -12,6 +12,86 @@
     <Window.Resources>
         <local:BoolToRedBrushConverter x:Key="BoolToRedBrushConverter" />
         <local:ByteArrayToBitmapImageConverter x:Key="ByteArrayToBitmapImageConverter" />
+        <local:BoolToBrushConverter x:Key="BoolToBrushConverter" />
+        
+        <!-- Size Button Style with box border -->
+        <Style x:Key="SizeButtonStyle" TargetType="Button">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="BorderBrush" Value="White" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}" 
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                BorderBrush="{TemplateBinding BorderBrush}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        
+        <!-- Icon Button Style - removes default border and focus visuals -->
+        <Style x:Key="IconButtonStyle" TargetType="Button">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Foreground" Value="White" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Grid Background="{TemplateBinding Background}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <Trigger Property="IsEnabled" Value="False">
+                    <Setter Property="Foreground" Value="#666666" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- Disabled-Aware Icon Button Style - ensures child TextBlocks also change color when disabled -->
+        <Style x:Key="DisabledAwareIconButtonStyle" TargetType="Button">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Foreground" Value="White" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Grid Background="{TemplateBinding Background}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <Trigger Property="IsEnabled" Value="False">
+                    <Setter Property="Foreground" Value="#666666" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+        
+        <!-- Icon ToggleButton Style - removes default border and focus visuals -->
+        <Style x:Key="IconToggleButtonStyle" TargetType="ToggleButton">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ToggleButton">
+                        <Grid Background="{TemplateBinding Background}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
         
         <!-- Expander Button Style -->
         <Style x:Key="ExpanderButtonStyle" TargetType="ToggleButton">
@@ -174,93 +254,184 @@
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />
                 <RowDefinition Height="*" />
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
 
             <!-- TOP TOOLBAR -->
-            <StackPanel Grid.Row="0" 
-                        Orientation="Horizontal" 
-                        Background="{StaticResource PanelBrush}"
-                        Margin="10"
-                        Height="50">
+            <DockPanel Grid.Row="0" 
+                       Background="{StaticResource PanelBrush}"
+                       Margin="10">
                 
-                <!-- Thumbnail Size Selection -->
-                <TextBlock Text="Size:" 
-                           VerticalAlignment="Center" 
-                           Margin="0,0,5,0"
-                           Foreground="{StaticResource ForegroundBrush}" />
-                <ComboBox Name="SizeComboBox" 
-                          Width="100" 
-                          Height="35"
-                          VerticalAlignment="Center"
-                          Margin="0,0,20,0"
-                          Background="{StaticResource AccentBrush}"
-                          Foreground="White"
-                          SelectedValue="{Binding ThumbnailSize, Mode=TwoWay}"
-                          SelectedValuePath="Content"
-                          SelectionChanged="SizeComboBox_SelectionChanged">
-                    <ComboBoxItem>Small</ComboBoxItem>
-                    <ComboBoxItem>Medium</ComboBoxItem>
-                    <ComboBoxItem>Large</ComboBoxItem>
-                </ComboBox>
+                <!-- Slideshow Button - Right side -->
+                <Button DockPanel.Dock="Right"
+                        Width="40"
+                        Height="40"
+                        Margin="10,0,0,0"
+                        VerticalAlignment="Center"
+                        Style="{StaticResource IconButtonStyle}"
+                        ToolTip="Start slideshow"
+                        Command="{Binding OpenSlideshowCommand}">
+                    <TextBlock Text="⛶" FontSize="24" Foreground="White" />
+                </Button>
 
-                <!-- Slideshow Button -->
-                <Button Name="SlideshowButton" 
-                        Content="Slideshow" 
-                        Width="100"
-                        Height="35"
-                        Margin="0,0,10,0"
-                        Background="{StaticResource AccentBrush}"
+                <!-- Left side controls -->
+                <StackPanel Orientation="Horizontal" 
+                            VerticalAlignment="Center"
+                            Height="50">
+                
+                <!-- Thumbnail Size Selection - Icon Buttons with Box -->
+                <Border BorderThickness="1" 
+                        BorderBrush="White"
+                        CornerRadius="4"
+                        Padding="2"
+                        VerticalAlignment="Center"
+                        Margin="0,0,20,0">
+                    <StackPanel Orientation="Horizontal">
+                        <!-- Small Size Button -->
+                        <Button Name="SmallSizeButton" 
+                                Width="36"
+                                Height="36"
+                                Foreground="White"
+                                Style="{StaticResource IconButtonStyle}"
+                                ToolTip="Small thumbnails"
+                                Click="SmallSizeButton_Click"
+                                Tag="Small">
+                            <TextBlock Text="■" FontSize="10" Foreground="{Binding RelativeSource={RelativeSource AncestorType={x:Type Button}}, Path=Foreground, Mode=OneWay}" />
+                        </Button>
+                        
+                        <!-- Medium Size Button -->
+                        <Button Name="MediumSizeButton" 
+                                Width="36"
+                                Height="36"
+                                Foreground="White"
+                                Style="{StaticResource IconButtonStyle}"
+                                ToolTip="Medium thumbnails"
+                                Click="MediumSizeButton_Click"
+                                Tag="Medium">
+                            <TextBlock Text="■" FontSize="18" Foreground="{Binding RelativeSource={RelativeSource AncestorType={x:Type Button}}, Path=Foreground, Mode=OneWay}" />
+                        </Button>
+                        
+                        <!-- Large Size Button -->
+                        <Button Name="LargeSizeButton" 
+                                Width="36"
+                                Height="36"
+                                Foreground="White"
+                                Style="{StaticResource IconButtonStyle}"
+                                ToolTip="Large thumbnails"
+                                Click="LargeSizeButton_Click"
+                                Tag="Large">
+                            <TextBlock Text="■" FontSize="24" Foreground="{Binding RelativeSource={RelativeSource AncestorType={x:Type Button}}, Path=Foreground, Mode=OneWay}" />
+                        </Button>
+                    </StackPanel>
+                </Border>
+                <Button Name="CopyButton" 
+                        Width="40"
+                        Height="40"
+                        Margin="0,0,5,0"
                         Foreground="White"
-                        Command="{Binding OpenSlideshowCommand}" />
+                        Style="{StaticResource DisabledAwareIconButtonStyle}"
+                        ToolTip="Copy marked images"
+                        IsEnabled="{Binding MoveButtonEnabled}"
+                        Click="CopyButton_Click">
+                    <TextBlock Text="📑" FontSize="20" Foreground="{Binding RelativeSource={RelativeSource AncestorType={x:Type Button}}, Path=IsEnabled, Converter={StaticResource BoolToBrushConverter}}" />
+                </Button>
 
-                <!-- Move To Button -->
-                <Button Name="MoveToButton" 
-                        Content="Move To" 
-                        Width="100"
-                        Height="35"
-                        Margin="0,0,10,0"
-                        Background="{StaticResource AccentBrush}"
+                <!-- Cut Button -->
+                <Button Name="CutButton" 
+                        Width="40"
+                        Height="40"
+                        Margin="0,0,5,0"
                         Foreground="White"
-                        Click="MoveToButton_Click"
-                        IsEnabled="{Binding MoveButtonEnabled, Mode=OneWay}" />
+                        Style="{StaticResource DisabledAwareIconButtonStyle}"
+                        ToolTip="Cut marked images"
+                        IsEnabled="{Binding MoveButtonEnabled}"
+                        Click="CutButton_Click">
+                    <TextBlock Text="✂" FontSize="20" Foreground="{Binding RelativeSource={RelativeSource AncestorType={x:Type Button}}, Path=IsEnabled, Converter={StaticResource BoolToBrushConverter}}" />
+                </Button>
 
-                <!-- Random Toggle -->
+                <!-- Paste Button -->
+                <Button Name="PasteButton" 
+                        Width="40"
+                        Height="40"
+                        Margin="0,0,5,0"
+                        Foreground="White"
+                        Style="{StaticResource DisabledAwareIconButtonStyle}"
+                        ToolTip="Paste images"
+                        IsEnabled="{Binding HasClipboardContent}"
+                        Click="PasteButton_Click">
+                    <TextBlock Text="📋" FontSize="20" Foreground="{Binding RelativeSource={RelativeSource AncestorType={x:Type Button}}, Path=Foreground}" />
+                </Button>
+
+                <!-- Delete Button - Trashcan Icon -->
+                <Button Name="DeleteButton" 
+                        Width="40"
+                        Height="40"
+                        Margin="0,0,10,0"
+                        Foreground="White"
+                        Style="{StaticResource DisabledAwareIconButtonStyle}"
+                        ToolTip="Delete marked images (to recycle bin)"
+                        IsEnabled="{Binding MoveButtonEnabled}"
+                        Click="DeleteButton_Click">
+                    <TextBlock Text="🗑" FontSize="20" Foreground="{Binding RelativeSource={RelativeSource AncestorType={x:Type Button}}, Path=IsEnabled, Converter={StaticResource BoolToBrushConverter}}" />
+                </Button>
+
+                <!-- Random Toggle - Shuffle Icon -->
                 <ToggleButton Name="RandomButton" 
-                              Content="Random" 
-                              Width="100"
-                              Height="35"
+                              Width="40"
+                              Height="40"
                               Margin="0,0,10,0"
+                              ToolTip="Toggle random display"
                               IsChecked="{Binding RandomEnabled, Mode=TwoWay}"
-                              Command="{Binding ToggleRandomCommand}"
-                              Background="{StaticResource AccentBrush}"
-                              Foreground="White" />
+                              Command="{Binding ToggleRandomCommand}">
+                    <ToggleButton.Style>
+                        <Style TargetType="ToggleButton" BasedOn="{StaticResource IconToggleButtonStyle}">
+                            <Setter Property="Foreground" Value="White" />
+                            <Style.Triggers>
+                                <Trigger Property="IsChecked" Value="False">
+                                    <Setter Property="Foreground" Value="White" />
+                                </Trigger>
+                                <Trigger Property="IsChecked" Value="True">
+                                    <Setter Property="Foreground" Value="Gold" />
+                                </Trigger>
+                            </Style.Triggers>
+                        </Style>
+                    </ToggleButton.Style>
+                    <TextBlock Text="🔀" FontSize="20" Foreground="{Binding RelativeSource={RelativeSource AncestorType={x:Type ToggleButton}}, Path=Foreground, Mode=OneWay}" />
+                </ToggleButton>
 
-                <!-- Favorite Toggle -->
+                <!-- Favorite Toggle - Star Icon -->
                 <ToggleButton Name="FavoriteButton" 
-                              Content="★ Favorite" 
-                              Width="100"
-                              Height="35"
+                              Width="40"
+                              Height="40"
+                              ToolTip="Toggle favorite"
                               IsChecked="{Binding IsFavorite, Mode=TwoWay}"
-                              Command="{Binding ToggleFavoriteCommand}"
-                              Background="{StaticResource AccentBrush}"
-                              Foreground="White" />
-            </StackPanel>
+                              Command="{Binding ToggleFavoriteCommand}">
+                    <ToggleButton.Style>
+                        <Style TargetType="ToggleButton" BasedOn="{StaticResource IconToggleButtonStyle}">
+                            <Setter Property="Foreground" Value="White" />
+                            <Style.Triggers>
+                                <Trigger Property="IsChecked" Value="False">
+                                    <Setter Property="Foreground" Value="White" />
+                                </Trigger>
+                                <Trigger Property="IsChecked" Value="True">
+                                    <Setter Property="Foreground" Value="Gold" />
+                                </Trigger>
+                            </Style.Triggers>
+                        </Style>
+                    </ToggleButton.Style>
+                    <TextBlock Text="★" FontSize="28" Foreground="{Binding RelativeSource={RelativeSource AncestorType={x:Type ToggleButton}}, Path=Foreground, Mode=OneWay}" />
+                </ToggleButton>
+                </StackPanel>
+            </DockPanel>
 
             <!-- THUMBNAIL VIEW -->
             <Grid Grid.Row="1">
                 <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto" />
                     <RowDefinition Height="*" />
                 </Grid.RowDefinitions>
                 
-                <!-- Thumbnail count display -->
-                <TextBlock Grid.Row="0" 
-                           Text="{Binding Images.Count, StringFormat='Showing {0} thumbnail(s)'}"
-                           Foreground="{StaticResource ForegroundBrush}"
-                           Margin="10,5,10,5"
-                           FontSize="12" />
-                
-                <ScrollViewer Grid.Row="1" Background="{StaticResource BackgroundBrush}">
+                <ScrollViewer Grid.Row="0" Background="{StaticResource BackgroundBrush}">
                     <ItemsControl Name="ThumbnailPanel" 
                                   ItemsSource="{Binding Images}"
                                   Background="{StaticResource BackgroundBrush}"
@@ -272,7 +443,8 @@
                         </ItemsControl.ItemsPanel>
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
-                                <Grid MouseLeftButtonDown="Thumbnail_MouseLeftButtonDown">
+                                <Grid MouseLeftButtonDown="Thumbnail_MouseLeftButtonDown"
+                                      ToolTip="{Binding FileName}">
                                     <Border BorderThickness="2" 
                                             BorderBrush="{Binding IsActive, Converter={StaticResource BoolToRedBrushConverter}}"
                                             Margin="5">
@@ -294,6 +466,28 @@
                     </ItemsControl>
                 </ScrollViewer>
             </Grid>
+
+            <!-- MESSAGE LINE -->
+            <TextBlock Grid.Row="2"
+                       Text="{Binding StatusMessage}"
+                       Foreground="{StaticResource ForegroundBrush}"
+                       Background="{StaticResource PanelBrush}"
+                       Padding="10,3"
+                       FontSize="11"
+                       MinHeight="25"
+                       VerticalAlignment="Center" />
+
+            <!-- STATUS BAR -->
+            <Border Grid.Row="3"
+                    Background="{StaticResource PanelBrush}"
+                    Padding="10,5"
+                    BorderThickness="0,1,0,0"
+                    BorderBrush="{StaticResource BorderBrush}">
+                <TextBlock Text="{Binding Images.Count, StringFormat='Showing {0} thumbnail(s)'}"
+                           Foreground="{StaticResource ForegroundBrush}"
+                           FontSize="11"
+                           VerticalAlignment="Center" />
+            </Border>
         </Grid>
     </Grid>
 </Window>

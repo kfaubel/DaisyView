@@ -56,7 +56,6 @@ public class MainWindowViewModel : ViewModelBase
     private ICommand? _toggleFavoriteCommand;
     private ICommand? _toggleRandomCommand;
     private ICommand? _markImageCommand;
-    private ICommand? _moveMarkedImagesCommand;
     private ICommand? _openSlideshowCommand;
     private ICommand? _expandFolderCommand;
 
@@ -77,7 +76,33 @@ public class MainWindowViewModel : ViewModelBase
     public ObservableCollection<ImageFile> Images
     {
         get => _images;
-        set { _images = value; OnPropertyChanged(nameof(Images)); }
+        set 
+        { 
+            if (_images != null)
+            {
+                foreach (var img in _images)
+                {
+                    img.PropertyChanged -= Image_PropertyChanged;
+                }
+            }
+            _images = value; 
+            if (_images != null)
+            {
+                foreach (var img in _images)
+                {
+                    img.PropertyChanged += Image_PropertyChanged;
+                }
+            }
+            OnPropertyChanged(nameof(Images));
+        }
+    }
+
+    private void Image_PropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(ImageFile.IsMarked))
+        {
+            OnPropertyChanged(nameof(MoveButtonEnabled));
+        }
     }
 
     public ImageFile? ActiveImage
@@ -131,6 +156,22 @@ public class MainWindowViewModel : ViewModelBase
         get => Images.Any(i => i.IsMarked);
     }
 
+    private bool _hasClipboardContent = false;
+
+    public bool HasClipboardContent
+    {
+        get => _hasClipboardContent;
+        set { _hasClipboardContent = value; OnPropertyChanged(nameof(HasClipboardContent)); }
+    }
+
+    private string _statusMessage = "";
+
+    public string StatusMessage
+    {
+        get => _statusMessage;
+        set { _statusMessage = value; OnPropertyChanged(nameof(StatusMessage)); }
+    }
+
     public bool IsNavigating
     {
         get => _isNavigating;
@@ -142,7 +183,6 @@ public class MainWindowViewModel : ViewModelBase
     public ICommand ToggleFavoriteCommand => _toggleFavoriteCommand ??= new RelayCommand(_ => ToggleFavorite(), _ => ActiveFolder != null);
     public ICommand ToggleRandomCommand => _toggleRandomCommand ??= new RelayCommand(_ => ToggleRandom(), _ => ActiveFolder != null && Images.Count > 0);
     public ICommand MarkImageCommand => _markImageCommand ??= new RelayCommand<ImageFile>(MarkImage, img => img != null);
-    public ICommand MoveMarkedImagesCommand => _moveMarkedImagesCommand ??= new RelayCommand<string>(async path => await MoveMarkedImagesAsync(path), _ => Images.Any(i => i.IsMarked));
     public ICommand OpenSlideshowCommand => _openSlideshowCommand ??= new RelayCommand(_ => OpenSlideshow(), _ => Images.Count > 0);
     public ICommand ExpandFolderCommand => _expandFolderCommand ??= new RelayCommand<TreeNode>(ExpandFolder, node => node != null);
 
@@ -298,21 +338,24 @@ public class MainWindowViewModel : ViewModelBase
             // Check if this folder is a favorite
             IsFavorite = _settingsService.IsFavorite(folderPath);
 
+            // Generate thumbnails
+            var visibleCount = 10; // TODO: Calculate based on UI size
+
             // Load random order if it was previously enabled
             var randomOrder = _settingsService.GetRandomOrder(folderPath);
             if (randomOrder != null)
             {
                 RandomEnabled = true;
                 ReorderImagesRandomly(randomOrder);
+                // After reordering, Images has been updated, so use that for thumbnails
+                _thumbnailService.GenerateThumbnailsAsync(Images.ToList(), visibleCount);
             }
             else
             {
                 RandomEnabled = false;
+                // Generate thumbnails for the normal order
+                _thumbnailService.GenerateThumbnailsAsync(images, visibleCount);
             }
-
-            // Generate thumbnails
-            var visibleCount = 10; // TODO: Calculate based on UI size
-            _thumbnailService.GenerateThumbnailsAsync(images, visibleCount);
 
             // Fire navigation event
             FolderNavigated?.Invoke(this, new FolderNavigationEventArgs { FolderPath = folderPath });
@@ -540,6 +583,10 @@ public class MainWindowViewModel : ViewModelBase
                 var images = _fileSystemService.GetImageFiles(ActiveFolder.FullPath);
                 Images = new ObservableCollection<ImageFile>(images);
                 
+                // Generate thumbnails for the reloaded images
+                var visibleCount = 10; // TODO: Calculate based on UI size
+                _thumbnailService.GenerateThumbnailsAsync(images, visibleCount);
+                
                 if (images.Count > 0)
                 {
                     images[0].IsActive = true;
@@ -641,6 +688,11 @@ public class MainWindowViewModel : ViewModelBase
                 var activeImage = Images.FirstOrDefault(i => i.FilePath == lastImage.FilePath);
                 if (activeImage != null)
                 {
+                    // Clear IsActive on all images first
+                    foreach (var image in Images)
+                    {
+                        image.IsActive = false;
+                    }
                     activeImage.IsActive = true;
                     ActiveImage = activeImage;
                 }
@@ -651,43 +703,6 @@ public class MainWindowViewModel : ViewModelBase
         catch (Exception ex)
         {
             _loggingService.LogError("Failed to open slideshow", ex);
-        }
-    }
-
-    /// <summary>
-    /// Moves marked images to a destination folder
-    /// </summary>
-    public async Task MoveMarkedImagesAsync(string? destinationFolder)
-    {
-        if (string.IsNullOrEmpty(destinationFolder))
-            return;
-
-        try
-        {
-            var markedFiles = Images.Where(i => i.IsMarked).Select(i => i.FilePath).ToList();
-            
-            if (markedFiles.Count == 0)
-                return;
-
-            if (ActiveFolder?.FullPath == destinationFolder)
-            {
-                _loggingService.LogWarning("Source and destination folders are the same");
-                // TODO: Show error dialog
-                return;
-            }
-
-            await _fileSystemService.MoveFilesAsync(markedFiles, destinationFolder);
-            _loggingService.LogUserAction("Moved marked images", $"Count: {markedFiles.Count}, Destination: {destinationFolder}");
-
-            // Reload current folder to refresh view
-            if (ActiveFolder != null)
-            {
-                NavigateToFolder(ActiveFolder.FullPath);
-            }
-        }
-        catch (Exception ex)
-        {
-            _loggingService.LogError("Failed to move marked images", ex);
         }
     }
 
