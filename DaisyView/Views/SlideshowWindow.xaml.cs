@@ -1,9 +1,12 @@
 using System;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Threading;
 using DaisyView.Models;
+using DaisyView.Services;
 
 namespace DaisyView.Views;
 
@@ -16,60 +19,256 @@ public partial class SlideshowWindow : Window
 {
     private List<ImageFile> _images = new();
     private int _currentImageIndex;
+        private DispatcherTimer? _videoLoopTimer;
+        private VideoConversionService? _videoConversionService;
 
-    public SlideshowWindow(List<ImageFile> images, int activeImageIndex = 0)
-    {
-        InitializeComponent();
-
-        _images = images;
-        _currentImageIndex = Math.Max(0, activeImageIndex);
-
-        // Window setup
-        WindowState = WindowState.Maximized;
-        Background = System.Windows.Media.Brushes.Black;
-
-        // Display first image
-        DisplayCurrentImage();
-
-        // Wire up events
-        PreviewKeyDown += SlideshowWindow_PreviewKeyDown;
-        MouseDown += SlideshowWindow_MouseDown;
-        MouseWheel += SlideshowWindow_MouseWheel;
-    }
-
-    /// <summary>
-    /// Displays the current image with its file name at the bottom
-    /// </summary>
-    private void DisplayCurrentImage()
-    {
-        if (_images.Count == 0)
-            return;
-
-        var currentImage = _images[_currentImageIndex];
-        
-        try
+        public SlideshowWindow(List<ImageFile> images, int activeImageIndex = 0, VideoConversionService? videoConversionService = null)
         {
-            var bitmap = new System.Windows.Media.Imaging.BitmapImage();
-            bitmap.BeginInit();
-            bitmap.UriSource = new Uri(currentImage.FilePath);
-            bitmap.CacheOption = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
-            bitmap.EndInit();
-            bitmap.Freeze();
+            InitializeComponent();
 
-            ImageDisplay.Source = bitmap;
-            
-            // Update file name with color based on marked state
-            FileNameDisplay.Text = currentImage.FileName;
-            FileNameDisplay.Foreground = currentImage.IsMarked 
-                ? System.Windows.Media.Brushes.Red 
-                : System.Windows.Media.Brushes.White;
+            _images = images;
+            _currentImageIndex = Math.Max(0, activeImageIndex);
+            _videoConversionService = videoConversionService;
+            // Setup video looping timer
+            _videoLoopTimer = new DispatcherTimer();
+            _videoLoopTimer.Interval = TimeSpan.FromMilliseconds(100);
+            _videoLoopTimer.Tick += VideoLoopTimer_Tick;
+
+            // Wire up MediaElement error handling
+            VideoDisplay.MediaFailed += VideoDisplay_MediaFailed;
+
+            // Display first image
+            DisplayCurrentImage();
+
+            // Wire up events
+            PreviewKeyDown += SlideshowWindow_PreviewKeyDown;
+            MouseDown += SlideshowWindow_MouseDown;
+            MouseWheel += SlideshowWindow_MouseWheel;
+            Closed += (s, e) => _videoLoopTimer?.Stop();
         }
-        catch
+
+        /// <summary>
+        /// Handles MediaElement playback errors
+        /// </summary>
+        private void VideoDisplay_MediaFailed(object? sender, System.Windows.ExceptionRoutedEventArgs e)
         {
-            FileNameDisplay.Text = $"Error loading: {currentImage.FileName}";
+            FileNameDisplay.Text = $"Media playback error: {e.ErrorException?.Message ?? "Unknown error"}";
             FileNameDisplay.Foreground = System.Windows.Media.Brushes.Yellow;
+            VideoNotSupportedOverlay.Visibility = Visibility.Visible;
         }
-    }
+
+        /// <summary>
+        /// Handles video looping
+        /// </summary>
+        private void VideoLoopTimer_Tick(object? sender, EventArgs e)
+        {
+            try
+            {
+                if (VideoDisplay.Source != null && VideoDisplay.NaturalDuration.HasTimeSpan)
+                {
+                    // Check if video has finished playing
+                    if (VideoDisplay.Position >= VideoDisplay.NaturalDuration.TimeSpan - TimeSpan.FromMilliseconds(100))
+                    {
+                        // Reset to beginning and play again
+                        VideoDisplay.Position = TimeSpan.Zero;
+                        VideoDisplay.Play();
+                    }
+                }
+            }
+            catch
+            {
+                // Silently handle any timing issues
+            }
+        }
+
+        /// <summary>
+        /// Displays the current image or video with its file name at the bottom
+        /// </summary>
+        private void DisplayCurrentImage()
+        {
+            if (_images.Count == 0)
+                return;
+
+            var currentImage = _images[_currentImageIndex];
+            
+            try
+            {
+                if (currentImage.IsVideo)
+                {
+                    // Check if we have a converted video file ready
+                    if (!string.IsNullOrEmpty(currentImage.ConvertedVideoPath) && System.IO.File.Exists(currentImage.ConvertedVideoPath))
+                    {
+                        PlayVideo(currentImage.ConvertedVideoPath);
+                    }
+                    else if (_videoConversionService != null)
+                    {
+                        // Start conversion asynchronously and show thumbnail while converting
+                        DisplayVideoNotSupported(currentImage);
+                        _ = ConvertAndPlayVideoAsync(currentImage);
+                    }
+                    else
+                    {
+                        // No conversion service available, show thumbnail
+                        DisplayVideoNotSupported(currentImage);
+                    }
+                }
+                else
+                {
+                    // Display image
+                    _videoLoopTimer?.Stop();
+                    VideoDisplay.Stop();
+                    VideoDisplay.Source = null;
+                    
+                    var bitmap = new System.Windows.Media.Imaging.BitmapImage();
+                    bitmap.BeginInit();
+                    bitmap.UriSource = new Uri(System.IO.Path.GetFullPath(currentImage.FilePath), UriKind.Absolute);
+                    bitmap.CacheOption = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
+                    bitmap.EndInit();
+                    bitmap.Freeze();
+
+                    VideoDisplay.Visibility = Visibility.Collapsed;
+                    VideoNotSupportedOverlay.Visibility = Visibility.Collapsed;
+                    ImageDisplay.Visibility = Visibility.Visible;
+                    ImageDisplay.Source = bitmap;
+                }
+                
+                // Update file name with color based on marked state
+                FileNameDisplay.Text = currentImage.FileName;
+                FileNameDisplay.Foreground = currentImage.IsMarked 
+                    ? System.Windows.Media.Brushes.Red 
+                    : System.Windows.Media.Brushes.White;
+            }
+            catch (Exception ex)
+            {
+                _videoLoopTimer?.Stop();
+                VideoDisplay.Stop();
+                VideoDisplay.Source = null;
+                VideoDisplay.Visibility = Visibility.Collapsed;
+                VideoNotSupportedOverlay.Visibility = Visibility.Collapsed;
+                ImageDisplay.Visibility = Visibility.Visible;
+                ImageDisplay.Source = null;
+                FileNameDisplay.Text = $"Error loading: {currentImage.FileName} - {ex.Message}";
+                FileNameDisplay.Foreground = System.Windows.Media.Brushes.Yellow;
+            }
+        }
+
+        /// <summary>
+        /// Displays a video by playing it in the MediaElement
+        /// </summary>
+        private void PlayVideo(string videoPath)
+        {
+            try
+            {
+                _videoLoopTimer?.Stop();
+                VideoDisplay.Stop();
+                VideoDisplay.Source = new Uri(System.IO.Path.GetFullPath(videoPath), UriKind.Absolute);
+                
+                ImageDisplay.Visibility = Visibility.Collapsed;
+                VideoNotSupportedOverlay.Visibility = Visibility.Collapsed;
+                VideoDisplay.Visibility = Visibility.Visible;
+                
+                _videoLoopTimer?.Start();
+                VideoDisplay.Play();
+            }
+            catch (Exception ex)
+            {
+                FileNameDisplay.Text = $"Error playing video: {ex.Message}";
+                FileNameDisplay.Foreground = System.Windows.Media.Brushes.Yellow;
+            }
+        }
+
+        /// <summary>
+        /// Displays "converting" message with thumbnail fallback
+        /// </summary>
+        private void DisplayVideoNotSupported(ImageFile currentImage, string status = "converting")
+        {
+            _videoLoopTimer?.Stop();
+            VideoDisplay.Stop();
+            VideoDisplay.Source = null;
+            
+            // Display the thumbnail as a fallback
+            if (currentImage.ThumbnailData != null && currentImage.ThumbnailData.Length > 0)
+            {
+                var bitmap = new System.Windows.Media.Imaging.BitmapImage();
+                bitmap.BeginInit();
+                bitmap.StreamSource = new System.IO.MemoryStream(currentImage.ThumbnailData);
+                bitmap.CacheOption = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
+                bitmap.EndInit();
+                bitmap.Freeze();
+
+                ImageDisplay.Source = bitmap;
+            }
+            else
+            {
+                ImageDisplay.Source = null;
+            }
+
+            // Update overlay message based on status
+            if (status == "converting")
+            {
+                OverlayIconText.Text = "⏳";
+                OverlayTitleText.Text = "Converting video...";
+                OverlaySubtitleText.Text = "Please wait, converting WebM to MP4";
+            }
+            else // failed
+            {
+                OverlayIconText.Text = "❌";
+                OverlayTitleText.Text = "Video playback not supported";
+                OverlaySubtitleText.Text = "WebM format is not supported";
+            }
+
+            // Show the overlay message
+            ImageDisplay.Visibility = Visibility.Visible;
+            VideoDisplay.Visibility = Visibility.Collapsed;
+            VideoNotSupportedOverlay.Visibility = Visibility.Visible;
+        }
+
+        /// <summary>
+        /// Converts a WebM video to MP4 asynchronously and plays it when ready
+        /// </summary>
+        private async Task ConvertAndPlayVideoAsync(ImageFile currentImage)
+        {
+            if (_videoConversionService == null || string.IsNullOrEmpty(currentImage.FilePath))
+                return;
+
+            try
+            {
+                var mp4Path = await _videoConversionService.ConvertWebmToMp4Async(currentImage.FilePath);
+                
+                if (!string.IsNullOrEmpty(mp4Path) && System.IO.File.Exists(mp4Path))
+                {
+                    // Update the image object with the converted file path
+                    currentImage.ConvertedVideoPath = mp4Path;
+                    
+                    // Only play if we're still on the same image
+                    if (_currentImageIndex < _images.Count && _images[_currentImageIndex] == currentImage)
+                    {
+                        // Invoke on UI thread to update display
+                        Dispatcher.Invoke(() => PlayVideo(mp4Path));
+                    }
+                }
+                else
+                {
+                    // Conversion failed, show error
+                    if (_currentImageIndex < _images.Count && _images[_currentImageIndex] == currentImage)
+                    {
+                        Dispatcher.Invoke(() => DisplayVideoNotSupported(currentImage, "failed"));
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                // Show conversion error on UI thread
+                if (_currentImageIndex < _images.Count && _images[_currentImageIndex] == currentImage)
+                {
+                    Dispatcher.Invoke(() =>
+                    {
+                        FileNameDisplay.Text = $"Conversion error: {ex.Message}";
+                        FileNameDisplay.Foreground = System.Windows.Media.Brushes.Yellow;
+                    });
+                }
+            }
+        }
 
     /// <summary>
     /// Moves to the next image, wrapping to the first image if at the end

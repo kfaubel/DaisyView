@@ -40,6 +40,7 @@ public class MainWindowViewModel : ViewModelBase
     private readonly LoggingService _loggingService;
     private readonly FileSystemService _fileSystemService;
     private readonly ThumbnailService _thumbnailService;
+    private readonly VideoConversionService _videoConversionService;
     private bool _isNavigating = false;
 
     private ObservableCollection<TreeNode> _rootNodes = new();
@@ -192,6 +193,7 @@ public class MainWindowViewModel : ViewModelBase
         _loggingService = new LoggingService(_settingsService);
         _fileSystemService = new FileSystemService(_loggingService);
         _thumbnailService = new ThumbnailService(_loggingService);
+        _videoConversionService = new VideoConversionService(_loggingService, _settingsService);
 
         LoadRootDrivesSync();
         LoadLastActiveFolder();
@@ -739,7 +741,7 @@ public class MainWindowViewModel : ViewModelBase
         try
         {
             var currentIndex = ActiveImage != null ? Images.IndexOf(ActiveImage) : 0;
-            var slideshowWindow = new Views.SlideshowWindow(Images.ToList(), currentIndex);
+            var slideshowWindow = new Views.SlideshowWindow(Images.ToList(), currentIndex, _videoConversionService);
             slideshowWindow.ShowDialog();
 
             // Update image states after slideshow closes

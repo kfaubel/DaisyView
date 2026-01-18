@@ -4,7 +4,9 @@
         Title="DaisyView - Slideshow"
         Background="Black"
         AllowsTransparency="False"
-        WindowStyle="None">
+        WindowStyle="None"
+        WindowState="Maximized"
+        WindowStartupLocation="Manual">
     
     <Grid Background="Black">
         <Grid.RowDefinitions>
@@ -17,7 +19,44 @@
                Grid.Row="0"
                Stretch="Uniform"
                HorizontalAlignment="Center"
-               VerticalAlignment="Center" />
+               VerticalAlignment="Center"
+               Visibility="Visible" />
+
+        <!-- Video Display -->
+        <MediaElement x:Name="VideoDisplay"
+                      Grid.Row="0"
+                      Stretch="Uniform"
+                      HorizontalAlignment="Center"
+                      VerticalAlignment="Center"
+                      Visibility="Collapsed"
+                      LoadedBehavior="Manual"
+                      UnloadedBehavior="Stop"
+                      ScrubbingEnabled="True" />
+
+        <!-- Video Conversion/Not Supported Overlay -->
+        <StackPanel x:Name="VideoNotSupportedOverlay"
+                    Grid.Row="0"
+                    Visibility="Collapsed"
+                    VerticalAlignment="Center"
+                    HorizontalAlignment="Center">
+            <TextBlock x:Name="OverlayIconText" 
+                       Text="⏳"
+                       FontSize="48"
+                       Foreground="White"
+                       HorizontalAlignment="Center"
+                       Margin="0,0,0,10" />
+            <TextBlock x:Name="OverlayTitleText" 
+                       Text="Converting video..."
+                       FontSize="18"
+                       Foreground="White"
+                       HorizontalAlignment="Center" />
+            <TextBlock x:Name="OverlaySubtitleText" 
+                       Text="Please wait, converting WebM to MP4"
+                       FontSize="12"
+                       Foreground="#AAAAAA"
+                       HorizontalAlignment="Center"
+                       Margin="0,5,0,0" />
+        </StackPanel>
 
         <!-- File Name Display at Bottom -->
         <StackPanel Grid.Row="1" 

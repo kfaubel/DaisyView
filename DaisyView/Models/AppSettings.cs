@@ -43,4 +43,14 @@ public class AppSettings
     /// Tracks which folders have random sorting enabled
     /// </summary>
     public List<string> RandomEnabledFolders { get; set; } = new();
+
+    /// <summary>
+    /// Maximum video cache size in bytes (default: 20 GB)
+    /// </summary>
+    public long VideoCacheMaxSizeBytes { get; set; } = 21_474_836_480; // 20 GB
+
+    /// <summary>
+    /// Maximum age of cache files in hours (default: 30 days = 720 hours)
+    /// </summary>
+    public long VideoCacheMaxAgeHours { get; set; } = 720; // 30 days
 }

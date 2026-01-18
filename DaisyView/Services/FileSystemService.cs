@@ -16,7 +16,7 @@ public class FileSystemService
 {
     private readonly LoggingService _loggingService;
     private readonly Dictionary<string, FileSystemWatcher> _watchers = new();
-    private static readonly string[] ImageExtensions = { ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tif", ".tiff", ".webp" };
+    private static readonly string[] ImageExtensions = { ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tif", ".tiff", ".webp", ".webm" };
 
     public event EventHandler<FileSystemEventArgs>? FileSystemChanged;
 
@@ -121,7 +121,7 @@ public class FileSystemService
     }
 
     /// <summary>
-    /// Gets image files in a folder (jpg, jpeg, png, gif, bmp, tif, tiff, webp)
+    /// Gets image files in a folder (jpg, jpeg, png, gif, bmp, tif, tiff, webp, webm)
     /// </summary>
     public List<ImageFile> GetImageFiles(string folderPath)
     {
@@ -138,12 +138,14 @@ public class FileSystemService
 
             foreach (var file in files)
             {
+                var isVideo = string.Equals(file.Extension, ".webm", StringComparison.OrdinalIgnoreCase);
                 images.Add(new ImageFile
                 {
                     FileName = file.Name,
                     FilePath = file.FullName,
                     IsMarked = false,
                     IsActive = false,
+                    IsVideo = isVideo,
                     ThumbnailGenerated = false
                 });
             }

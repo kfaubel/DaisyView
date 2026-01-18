@@ -13,6 +13,8 @@ public class ImageFile : INotifyPropertyChanged
     private bool _isActive;
     private byte[]? _thumbnailData;
     private bool _thumbnailGenerated;
+    private bool _isVideo;
+    private string? _convertedVideoPath;
 
     /// <summary>
     /// File name without path
@@ -23,6 +25,25 @@ public class ImageFile : INotifyPropertyChanged
     /// Full path to the file
     /// </summary>
     public required string FilePath { get; set; }
+
+    /// <summary>
+    /// Whether this file is a video file (WebM, etc.)
+    /// </summary>
+    public bool IsVideo
+    {
+        get => _isVideo;
+        set { if (_isVideo != value) { _isVideo = value; OnPropertyChanged(); } }
+    }
+
+    /// <summary>
+    /// Path to the converted video file (MP4) if available
+    /// Used when original video format is not supported by MediaElement
+    /// </summary>
+    public string? ConvertedVideoPath
+    {
+        get => _convertedVideoPath;
+        set { if (_convertedVideoPath != value) { _convertedVideoPath = value; OnPropertyChanged(); } }
+    }
 
     /// <summary>
     /// Whether this file is marked (has a checkmark)
