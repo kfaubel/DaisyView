@@ -41,6 +41,9 @@ public partial class MainWindow : Window
         EventManager.RegisterClassHandler(typeof(Grid), Control.MouseDoubleClickEvent,
             new MouseButtonEventHandler(Thumbnail_MouseDoubleClick), handledEventsToo: true);
 
+        // Register keyboard handler for F11 to start slideshow
+        PreviewKeyDown += MainWindow_PreviewKeyDown;
+
         // Subscribe to changes in the ViewModel
         if (_viewModel != null)
         {
@@ -220,6 +223,18 @@ public partial class MainWindow : Window
     private void Thumbnail_MouseDoubleClick(object sender, MouseButtonEventArgs e)
     {
         _viewModel?.OpenSlideshow();
+    }
+
+    /// <summary>
+    /// Handles keyboard input (F11 to open slideshow)
+    /// </summary>
+    private void MainWindow_PreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.F11)
+        {
+            _viewModel?.OpenSlideshow();
+            e.Handled = true;
+        }
     }
 
     /// <summary>

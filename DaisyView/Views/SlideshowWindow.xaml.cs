@@ -103,6 +103,7 @@ public partial class SlideshowWindow : Window
                     else if (_videoConversionService != null)
                     {
                         // Start conversion asynchronously and show thumbnail while converting
+                        // Intentional fire-and-forget: conversion runs in background, UI updates via Dispatcher
                         DisplayVideoNotSupported(currentImage);
                         _ = ConvertAndPlayVideoAsync(currentImage);
                     }
@@ -178,9 +179,9 @@ public partial class SlideshowWindow : Window
         }
 
         /// <summary>
-        /// Displays "converting" message with thumbnail fallback
+        /// Displays video playback status overlay with thumbnail fallback
         /// </summary>
-        private void DisplayVideoNotSupported(ImageFile currentImage, string status = "converting")
+        private void DisplayVideoNotSupported(ImageFile currentImage, VideoConversionStatus status = VideoConversionStatus.Converting)
         {
             _videoLoopTimer?.Stop();
             VideoDisplay.Stop();
@@ -204,17 +205,18 @@ public partial class SlideshowWindow : Window
             }
 
             // Update overlay message based on status
-            if (status == "converting")
+            switch (status)
             {
-                OverlayIconText.Text = "⏳";
-                OverlayTitleText.Text = "Converting video...";
-                OverlaySubtitleText.Text = "Please wait, converting WebM to MP4";
-            }
-            else // failed
-            {
-                OverlayIconText.Text = "❌";
-                OverlayTitleText.Text = "Video playback not supported";
-                OverlaySubtitleText.Text = "WebM format is not supported";
+                case VideoConversionStatus.Converting:
+                    OverlayIconText.Text = "⏳";
+                    OverlayTitleText.Text = "Converting video...";
+                    OverlaySubtitleText.Text = "Please wait, converting WebM to MP4";
+                    break;
+                case VideoConversionStatus.Failed:
+                    OverlayIconText.Text = "❌";
+                    OverlayTitleText.Text = "Video playback not supported";
+                    OverlaySubtitleText.Text = "WebM format is not supported";
+                    break;
             }
 
             // Show the overlay message
@@ -233,27 +235,33 @@ public partial class SlideshowWindow : Window
 
             try
             {
-                var mp4Path = await _videoConversionService.ConvertWebmToMp4Async(currentImage.FilePath);
+                var cachedFilePath = await _videoConversionService.ConvertWebmToMp4Async(currentImage.FilePath);
                 
-                if (!string.IsNullOrEmpty(mp4Path) && System.IO.File.Exists(mp4Path))
+                // Only proceed if we're still viewing the same image
+                if (_currentImageIndex >= _images.Count || _images[_currentImageIndex] != currentImage)
+                    return;
+
+                if (!string.IsNullOrEmpty(cachedFilePath) && System.IO.File.Exists(cachedFilePath))
                 {
-                    // Update the image object with the converted file path
-                    currentImage.ConvertedVideoPath = mp4Path;
+                    // Get temporary playback path (creates temp .mp4 from .daicache if needed)
+                    var playbackPath = _videoConversionService.GetPlaybackPath(cachedFilePath);
                     
-                    // Only play if we're still on the same image
-                    if (_currentImageIndex < _images.Count && _images[_currentImageIndex] == currentImage)
+                    if (string.IsNullOrEmpty(playbackPath))
                     {
-                        // Invoke on UI thread to update display
-                        Dispatcher.Invoke(() => PlayVideo(mp4Path));
+                        Dispatcher.Invoke(() => DisplayVideoNotSupported(currentImage, VideoConversionStatus.Failed));
+                        return;
                     }
+                    
+                    // Update the image object with the playback file path
+                    currentImage.ConvertedVideoPath = playbackPath;
+                    
+                    // Invoke on UI thread to update display
+                    Dispatcher.Invoke(() => PlayVideo(playbackPath));
                 }
                 else
                 {
                     // Conversion failed, show error
-                    if (_currentImageIndex < _images.Count && _images[_currentImageIndex] == currentImage)
-                    {
-                        Dispatcher.Invoke(() => DisplayVideoNotSupported(currentImage, "failed"));
-                    }
+                    Dispatcher.Invoke(() => DisplayVideoNotSupported(currentImage, VideoConversionStatus.Failed));
                 }
             }
             catch (Exception ex)

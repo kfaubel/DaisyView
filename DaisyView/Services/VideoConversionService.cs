@@ -8,6 +8,15 @@ using DaisyView.Models;
 namespace DaisyView.Services;
 
 /// <summary>
+/// Represents the status of video conversion or playback
+/// </summary>
+public enum VideoConversionStatus
+{
+    Converting,
+    Failed
+}
+
+/// <summary>
 /// Converts WebM video files to MP4 format using FFmpeg
 /// Cached conversions are reused to avoid redundant processing
 /// </summary>
@@ -39,7 +48,7 @@ public class VideoConversionService
     }
 
     /// <summary>
-    /// Gets the path to an MP4 file for the given WebM input.
+    /// Gets the path to a cached .daicache file for the given WebM input.
     /// If a cached conversion exists, returns that path.
     /// Otherwise, starts an async conversion and returns null initially,
     /// then returns the path when conversion completes.
@@ -52,24 +61,54 @@ public class VideoConversionService
         try
         {
             var fileInfo = new FileInfo(webmFilePath);
+            // Use .daicache extension to avoid leaving .mp4 files on disk
             var cacheFileName = $"{Path.GetFileNameWithoutExtension(webmFilePath)}_{fileInfo.Length}_{fileInfo.LastWriteTimeUtc:yyyyMMddHHmmss}.daicache";
-            var cachedMp4Path = Path.Combine(_cacheDirectory, cacheFileName);
+            var cachedFilePath = Path.Combine(_cacheDirectory, cacheFileName);
 
             // Return cached file if it exists
-            if (File.Exists(cachedMp4Path))
+            if (File.Exists(cachedFilePath))
             {
-                _loggingService.LogInfo("Using cached MP4 for WebM: {WebmFile}", webmFilePath);
-                return cachedMp4Path;
+                _loggingService.LogInfo("Using cached conversion for WebM: {WebmFile}", webmFilePath);
+                return cachedFilePath;
             }
 
             // Clean up old cache files for this WebM (keep only the latest)
             CleanupOldCacheFiles(Path.GetFileNameWithoutExtension(webmFilePath));
 
-            return cachedMp4Path;
+            return cachedFilePath;
         }
         catch (Exception ex)
         {
             _loggingService.LogError("Error getting converted file path", ex);
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Gets a temporary .mp4 file for playback from a cached .daicache file.
+    /// Creates a copy in the temp directory so the player can recognize the format.
+    /// Temp files are automatically cleaned up by Windows.
+    /// </summary>
+    public string? GetPlaybackPath(string cachedFilePath)
+    {
+        if (!File.Exists(cachedFilePath))
+            return null;
+
+        try
+        {
+            // Create a temporary .mp4 file for playback
+            var tempFileName = $"{Path.GetFileNameWithoutExtension(cachedFilePath)}_temp.mp4";
+            var tempPlaybackPath = Path.Combine(Path.GetTempPath(), tempFileName);
+
+            // Copy the cached file to temp with .mp4 extension for playback
+            File.Copy(cachedFilePath, tempPlaybackPath, overwrite: true);
+            _loggingService.LogInfo("Created temporary playback file: {TempFile}", tempPlaybackPath);
+
+            return tempPlaybackPath;
+        }
+        catch (Exception ex)
+        {
+            _loggingService.LogError("Error creating playback path from cache", ex);
             return null;
         }
     }
@@ -105,16 +144,28 @@ public class VideoConversionService
         try
         {
             _loggingService.LogInfo("Starting WebM to MP4 conversion: {WebmFile} -> {Mp4File}", webmFilePath, mp4Path);
+            _loggingService.LogInfo("WebM file exists: {Exists}, Size: {Size} bytes", 
+                File.Exists(webmFilePath), 
+                File.Exists(webmFilePath) ? new FileInfo(webmFilePath).Length : 0);
+            _loggingService.LogInfo("MP4 output cache directory: {CacheDir}, Exists: {Exists}", _cacheDirectory, Directory.Exists(_cacheDirectory));
 
+            // Try conversion with libx264 video and re-encoded audio
+            // If this fails, we'll get detailed error info in the logs
             var processInfo = new ProcessStartInfo
             {
                 FileName = "ffmpeg",
-                Arguments = $"-i \"{webmFilePath}\" -c:v libx264 -preset fast -c:a aac -q:a 5 \"{mp4Path}\"",
+                // Using: H.264 video (libx264) + AAC audio
+                // -f mp4: explicitly specify output format so we don't need .mp4 extension
+                // -crf: quality (0-51, 23 is default), lower = better quality but larger file
+                // -b:a: audio bitrate (128k is good quality)
+                Arguments = $"-hide_banner -loglevel error -y -i \"{webmFilePath}\" -c:v libx264 -crf 23 -c:a aac -b:a 128k -movflags +faststart -f mp4 \"{mp4Path}\"",
                 UseShellExecute = false,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 CreateNoWindow = true,
             };
+
+            _loggingService.LogInfo("FFmpeg command: ffmpeg {Args}", processInfo.Arguments);
 
             using (var process = Process.Start(processInfo))
             {
@@ -124,25 +175,33 @@ public class VideoConversionService
                     return null;
                 }
 
-                // Read output to prevent deadlock
-                var output = process.StandardOutput.ReadToEnd();
-                var error = process.StandardError.ReadToEnd();
+                _loggingService.LogInfo("FFmpeg process started with PID: {ProcessId}", process.Id);
 
+                // Read streams asynchronously to prevent deadlock
+                // FFmpeg writes progress info to stderr, which can fill the buffer if read synchronously
+                var stdoutTask = process.StandardOutput.ReadToEndAsync();
+                var stderrTask = process.StandardError.ReadToEndAsync();
+                
+                _loggingService.LogInfo("Waiting for FFmpeg process to complete...");
                 process.WaitForExit();
+                
+                // Wait for both tasks to complete to ensure all streams are read
+                System.Threading.Tasks.Task.WaitAll(stdoutTask, stderrTask);
+                var error = stderrTask.Result;
+                var output = stdoutTask.Result;
+
+                _loggingService.LogInfo("FFmpeg process completed. Exit code: {ExitCode}", process.ExitCode);
+                
+                if (!string.IsNullOrWhiteSpace(error))
+                {
+                    _loggingService.LogInfo("FFmpeg stderr output: {Error}", error);
+                }
 
                 if (process.ExitCode != 0)
                 {
                     _loggingService.LogError("FFmpeg conversion failed for {WebmFile}. Exit code: {ExitCode}. Error: {Error}", null,
-                        webmFilePath, process.ExitCode, error);
-                    
-                    // Clean up partial file
-                    try
-                    {
-                        if (File.Exists(mp4Path))
-                            File.Delete(mp4Path);
-                    }
-                    catch { }
-
+                        webmFilePath, process.ExitCode, string.IsNullOrWhiteSpace(error) ? "(empty)" : error);
+                    CleanupPartialFile(mp4Path);
                     return null;
                 }
 
@@ -153,23 +212,33 @@ public class VideoConversionService
                     return null;
                 }
 
-                _loggingService.LogInfo("Successfully converted WebM to MP4: {Mp4File}", mp4Path);
+                var fileSize = new FileInfo(mp4Path).Length;
+                _loggingService.LogInfo("Successfully converted WebM to MP4: {Mp4File} ({Size} bytes)", mp4Path, fileSize);
+                
                 return mp4Path;
             }
         }
         catch (Exception ex)
         {
-            _loggingService.LogError("Exception during WebM to MP4 conversion", ex);
-            
-            // Clean up partial file
-            try
-            {
-                if (File.Exists(mp4Path))
-                    File.Delete(mp4Path);
-            }
-            catch { }
-
+            _loggingService.LogError("Exception during WebM to MP4 conversion: {Message} {StackTrace}", ex);
+            CleanupPartialFile(mp4Path);
             return null;
+        }
+    }
+
+    /// <summary>
+    /// Removes a partial or incomplete conversion file after failure
+    /// </summary>
+    private void CleanupPartialFile(string filePath)
+    {
+        try
+        {
+            if (File.Exists(filePath))
+                File.Delete(filePath);
+        }
+        catch
+        {
+            _loggingService.LogWarning("Failed to delete partial conversion file: {FilePath}", filePath);
         }
     }
 
@@ -190,17 +259,17 @@ public class VideoConversionService
                 try
                 {
                     File.Delete(file);
-                    _loggingService.LogInfo("Cleaned up old cache file: {CacheFile}", file);
+                    _loggingService.LogInfo("Cleaned up old cache file: {CacheFile}", Path.GetFileName(file));
                 }
-                catch
+                catch (Exception)
                 {
-                    _loggingService.LogWarning("Failed to delete old cache file: {CacheFile}", file);
+                    _loggingService.LogWarning("Failed to delete old cache file: {CacheFile}", Path.GetFileName(file));
                 }
             }
         }
-        catch
+        catch (Exception ex)
         {
-            _loggingService.LogWarning("Error cleaning up old cache files");
+            _loggingService.LogWarning("Error cleaning up old cache files: {Error}", ex.Message);
         }
     }
 
@@ -236,7 +305,10 @@ public class VideoConversionService
                     file.Delete();
                     _loggingService.LogInfo("Removed old cache file: {CacheFile}", file.Name);
                 }
-                catch { }
+                catch (Exception)
+                {
+                    _loggingService.LogWarning("Failed to remove old cache file: {CacheFile}", file.Name);
+                }
             }
 
             // Calculate total cache size and remove oldest files if exceeds limit
@@ -259,7 +331,10 @@ public class VideoConversionService
                         file.Delete();
                         _loggingService.LogInfo("Removed cache file to manage size: {CacheFile}", file.Name);
                     }
-                    catch { }
+                    catch (Exception)
+                    {
+                        _loggingService.LogWarning("Failed to remove cache file for size management: {CacheFile}", file.Name);
+                    }
                 }
             }
         }

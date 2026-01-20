@@ -12,7 +12,8 @@
 - `Services/SettingsService.cs` - JSON settings management
 - `Services/LoggingService.cs` - Serilog-based logging
 - `Services/FileSystemService.cs` - File system operations & watching
-- `Services/ThumbnailService.cs` - Thumbnail generation
+- `Services/ThumbnailService.cs` - Thumbnail generation (supports WebM via FFmpeg)
+- `Services/VideoConversionService.cs` - WebM to MP4 conversion with caching
 - `Services/UpdateCheckService.cs` - GitHub update checking
 
 ### ViewModels
@@ -99,7 +100,7 @@ _settingsService.ClearRandomOrder(folderPath);
 var drives = _fileSystemService.GetRootDrives();
 var subfolders = _fileSystemService.GetSubfolders(folderPath);
 
-// Get images
+// Get images (includes WebM video files)
 var images = _fileSystemService.GetImageFiles(folderPath);
 
 // Watch for changes
@@ -110,6 +111,21 @@ _fileSystemService.UnwatchFolder(folderPath);
 await _fileSystemService.MoveFilesAsync(sourceList, destinationPath);
 await _fileSystemService.DeleteFilesAsync(fileList);
 _fileSystemService.CreateFolder(folderPath, folderName);
+```
+
+### Video Conversion (WebM Support)
+```csharp
+// Convert WebM to MP4 (with caching)
+var mp4Path = await _videoConversionService.ConvertWebmToMp4Async(webmFilePath);
+
+// Clear entire cache
+_videoConversionService.ClearCache();
+
+// Cache settings in settings.json
+{
+  "VideoCacheMaxSizeBytes": 21474836480,    // 20 GB
+  "VideoCacheMaxAgeHours": 720              // 30 days
+}
 ```
 
 ## Key Design Patterns
@@ -200,6 +216,8 @@ Monitor logs for GitHub API responses
   "LoggingLevel": "Trace|Information|Warning|Error",
   "FavoriteFolders": ["C:\\Folder1", "C:\\Folder2"],
   "ThumbnailSize": "Small|Medium|Large",
+  "VideoCacheMaxSizeBytes": 21474836480,
+  "VideoCacheMaxAgeHours": 720,
   "RandomOrderCache": {
     "C:\\Folder": ["file1.jpg", "file2.jpg"]
   },
@@ -251,8 +269,59 @@ Monitor logs for GitHub API responses
 
 ---
 
+## Quick Commands
+
+### Build
+```bash
+# Debug build
+dotnet build DaisyView.sln
+
+# Release build
+dotnet build DaisyView.sln --configuration Release
+
+# Publish for distribution
+dotnet publish -c Release -o ./publish
+```
+
+### Testing
+```bash
+# Run all tests
+dotnet test DaisyView.sln
+
+# Run specific test file
+dotnet test DaisyView.Tests/SettingsServiceTests.cs
+```
+
+### Creating a Release
+```bash
+# 1. Update version in DaisyView/DaisyView.csproj
+# 2. Build and test
+dotnet build DaisyView.sln --configuration Release
+dotnet test DaisyView.sln
+
+# 3. Commit version change
+git add DaisyView/DaisyView.csproj
+git commit -m "chore: bump version to X.Y.Z"
+git push origin main
+
+# 4. Create git tag
+git tag -a vX.Y.Z -m "Release version X.Y.Z"
+git push origin vX.Y.Z
+
+# 5. Create release on GitHub Releases page
+# See GITHUB_RELEASES_GUIDE.md for detailed instructions
+```
+
+---
+
 **Quick Links**:
 - Settings location: `%APPDATA%\Local\DaisyView\settings.json`
 - Logs location: `%APPDATA%\Local\DaisyView\logs\`
-- GitHub Issues: [Add repo URL]
-- Documentation: See README.md and DEVELOPMENT.md
+- Cache location: `%APPDATA%\Local\DaisyView\VideoCache\`
+- Releases: https://github.com/kfaubel/DaisyView/releases
+- Issues: https://github.com/kfaubel/DaisyView/issues
+- Documentation: 
+  - [README.md](README.md) - Project overview
+  - [QUICK_REFERENCE.md](QUICK_REFERENCE.md) - This file
+  - [GITHUB_RELEASES_GUIDE.md](GITHUB_RELEASES_GUIDE.md) - Release instructions
+  - [DEVELOPMENT.md](DEVELOPMENT.md) - Development guide
