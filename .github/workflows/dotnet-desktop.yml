@@ -23,7 +23,7 @@ jobs:
       run: dotnet build --configuration Release --no-restore
       
     - name: Publish
-      run: dotnet publish DaisyView.Wpf -c Release -r win-x64 --no-self-contained --output ./publish
+      run: dotnet publish DaisyView -c Release -r win-x64 --no-self-contained --output ./publish
       
     - name: Create ZIP package
       run: |
@@ -31,7 +31,7 @@ jobs:
         # Remove debug files
         Remove-Item *.pdb
         # Create release package
-        Compress-Archive -Path * -DestinationPath ../DaisyView-win-x64.zip
+        Compress-Archive -Path * -DestinationPath ../DaisyView.zip
         cd ..
         
     - name: Create Release
@@ -50,7 +50,7 @@ jobs:
           - [.NET 8 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/8.0)
           
           ### Installation
-          1. Download `DaisyView-win-x64.zip`
+          1. Download `DaisyView.zip`
           2. Extract all files to a folder
           3. Run `DaisyView.exe`
           
