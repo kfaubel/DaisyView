@@ -17,12 +17,23 @@ public class SettingsService
     private AppSettings _currentSettings;
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
+    /// <summary>
+    /// Creates a new SettingsService using the default AppData location
+    /// </summary>
     public SettingsService()
-    {
-        // Initialize settings folder in AppData\Local
-        _settingsFolder = Path.Combine(
+        : this(Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "DaisyView");
+            "DaisyView"))
+    {
+    }
+
+    /// <summary>
+    /// Creates a new SettingsService with a custom settings folder path (for testing)
+    /// </summary>
+    /// <param name="settingsFolder">The folder path where settings.json will be stored</param>
+    public SettingsService(string settingsFolder)
+    {
+        _settingsFolder = settingsFolder;
         _settingsFilePath = Path.Combine(_settingsFolder, "settings.json");
         
         _currentSettings = LoadSettings();

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using DaisyView.Constants;
 
 namespace DaisyView.Models;
 
@@ -32,7 +33,7 @@ public class AppSettings
     /// <summary>
     /// Thumbnail size in pixels: "Small" (100), "Medium" (200), "Large" (400)
     /// </summary>
-    public string ThumbnailSize { get; set; } = "Medium";
+    public string ThumbnailSize { get; set; } = AppConstants.ThumbnailSizes.Medium;
 
     /// <summary>
     /// Stores random sort order for each folder (key: folder path, value: list of file names in random order)
@@ -47,22 +48,22 @@ public class AppSettings
     /// <summary>
     /// Maximum video cache size in bytes (default: 20 GB)
     /// </summary>
-    public long VideoCacheMaxSizeBytes { get; set; } = 21_474_836_480; // 20 GB
+    public long VideoCacheMaxSizeBytes { get; set; } = AppConstants.Timing.DefaultCacheMaxSizeBytes;
 
     /// <summary>
     /// Maximum age of cache files in hours (default: 30 days = 720 hours)
     /// </summary>
-    public long VideoCacheMaxAgeHours { get; set; } = 720; // 30 days
+    public long VideoCacheMaxAgeHours { get; set; } = AppConstants.Timing.DefaultCacheMaxAgeHours;
 
     /// <summary>
     /// Last window width in pixels
     /// </summary>
-    public double WindowWidth { get; set; } = 1200;
+    public double WindowWidth { get; set; } = AppConstants.WindowDefaults.Width;
 
     /// <summary>
     /// Last window height in pixels
     /// </summary>
-    public double WindowHeight { get; set; } = 800;
+    public double WindowHeight { get; set; } = AppConstants.WindowDefaults.Height;
 
     /// <summary>
     /// Last window left position (X coordinate)
@@ -77,5 +78,5 @@ public class AppSettings
     /// <summary>
     /// Window state: Normal, Maximized, or Minimized
     /// </summary>
-    public string WindowState { get; set; } = "Normal";
+    public string WindowState { get; set; } = AppConstants.WindowDefaults.State;
 }

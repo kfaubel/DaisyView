@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Media.Imaging;
 using FFMpegCore;
+using DaisyView.Constants;
 using DaisyView.Models;
 
 namespace DaisyView.Services;
@@ -15,12 +16,13 @@ namespace DaisyView.Services;
 /// Visible thumbnails are generated first, then background generation processes the rest
 /// Background generation is abandoned if user changes folders
 /// </summary>
-public class ThumbnailService
+public class ThumbnailService : IDisposable
 {
     private readonly LoggingService _loggingService;
     private CancellationTokenSource? _backgroundTaskCancellation;
     private static readonly object LockObject = new();
-    private int _currentThumbnailSize = 200; // Default size
+    private volatile int _currentThumbnailSize = 200; // Default size - volatile for thread safety
+    private bool _disposed = false;
 
     public event EventHandler<ImageFile>? ThumbnailGenerated;
 
@@ -42,8 +44,9 @@ public class ThumbnailService
     /// </summary>
     public void GenerateThumbnailsAsync(List<ImageFile> images, int visibleCount)
     {
-        // Cancel any existing background task
+        // Cancel and dispose any existing background task
         _backgroundTaskCancellation?.Cancel();
+        _backgroundTaskCancellation?.Dispose();
         _backgroundTaskCancellation = new CancellationTokenSource();
 
         var token = _backgroundTaskCancellation.Token;
@@ -271,12 +274,33 @@ public class ThumbnailService
     /// </summary>
     public static int GetThumbnailSizePixels(string sizeString)
     {
-        return sizeString.ToLower() switch
+        return AppConstants.ThumbnailSizes.GetPixelSize(sizeString);
+    }
+
+    /// <summary>
+    /// Cleans up resources
+    /// </summary>
+    public void Dispose()
+    {
+        Dispose(true);
+        GC.SuppressFinalize(this);
+    }
+
+    /// <summary>
+    /// Protected dispose method for proper disposal pattern
+    /// </summary>
+    protected virtual void Dispose(bool disposing)
+    {
+        if (_disposed)
+            return;
+
+        if (disposing)
         {
-            "small" => 100,
-            "medium" => 200,
-            "large" => 400,
-            _ => 200
-        };
+            _backgroundTaskCancellation?.Cancel();
+            _backgroundTaskCancellation?.Dispose();
+            _backgroundTaskCancellation = null;
+        }
+
+        _disposed = true;
     }
 }

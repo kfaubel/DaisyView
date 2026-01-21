@@ -5,6 +5,8 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Threading;
+using DaisyView.Constants;
+using DaisyView.Helpers;
 using DaisyView.Models;
 using DaisyView.Services;
 
@@ -36,12 +38,12 @@ public partial class SlideshowWindow : Window
             _audioEnabled = audioEnabled;
             // Setup video looping timer
             _videoLoopTimer = new DispatcherTimer();
-            _videoLoopTimer.Interval = TimeSpan.FromMilliseconds(100);
+            _videoLoopTimer.Interval = AppConstants.Timing.VideoLoopCheckInterval;
             _videoLoopTimer.Tick += VideoLoopTimer_Tick;
 
             // Setup cursor hide timer
             _cursorHideTimer = new DispatcherTimer();
-            _cursorHideTimer.Interval = TimeSpan.FromSeconds(2);
+            _cursorHideTimer.Interval = AppConstants.Timing.CursorHideDelay;
             _cursorHideTimer.Tick += CursorHideTimer_Tick;
             
             // Ensure cursor is visible initially
@@ -110,7 +112,7 @@ public partial class SlideshowWindow : Window
                 if (VideoDisplay.Source != null && VideoDisplay.NaturalDuration.HasTimeSpan)
                 {
                     // Check if video has finished playing
-                    if (VideoDisplay.Position >= VideoDisplay.NaturalDuration.TimeSpan - TimeSpan.FromMilliseconds(100))
+                    if (VideoDisplay.Position >= VideoDisplay.NaturalDuration.TimeSpan - AppConstants.Timing.VideoLoopCheckInterval)
                     {
                         // Reset to beginning and play again
                         VideoDisplay.Position = TimeSpan.Zero;
@@ -136,166 +138,178 @@ public partial class SlideshowWindow : Window
             
             try
             {
-                // Check if it's a GIF (animated or not) - treat animated GIFs as videos
-                bool isAnimatedGif = System.IO.Path.GetExtension(currentImage.FilePath).Equals(".gif", StringComparison.OrdinalIgnoreCase);
-                
-                if (currentImage.IsVideo || isAnimatedGif)
+                if (ShouldPlayAsVideo(currentImage))
                 {
-                    // For WebM files, check if we have a converted cached version
-                    bool isWebM = System.IO.Path.GetExtension(currentImage.FilePath).Equals(".webm", StringComparison.OrdinalIgnoreCase);
-                    
-                    bool isAvi = System.IO.Path.GetExtension(currentImage.FilePath).Equals(".avi", StringComparison.OrdinalIgnoreCase);
-                    bool isMpeg = System.IO.Path.GetExtension(currentImage.FilePath).Equals(".mpeg", StringComparison.OrdinalIgnoreCase) ||
-                                 System.IO.Path.GetExtension(currentImage.FilePath).Equals(".mpg", StringComparison.OrdinalIgnoreCase);
-                    
-                    if (isWebM || isAvi || isMpeg)
-                    {
-                        // For WebM, AVI, MPEG/MPG - check for cache/conversion first
-                        // (MediaElement doesn't natively support these formats)
-                        string? playbackPath = null;
-                        string? cacheFilePath = null;
-                        
-                        // First check if ConvertedVideoPath is already set
-                        if (!string.IsNullOrEmpty(currentImage.ConvertedVideoPath) && System.IO.File.Exists(currentImage.ConvertedVideoPath))
-                        {
-                            // Already have a playback path, use it
-                            playbackPath = currentImage.ConvertedVideoPath;
-                        }
-                        else if (_videoConversionService != null)
-                        {
-                            // Check if cache file exists by looking it up
-                            cacheFilePath = _videoConversionService.GetConvertedFilePath(currentImage.FilePath);
-                            if (cacheFilePath != null && System.IO.File.Exists(cacheFilePath))
-                            {
-                                // Cache file exists - convert to temporary playback MP4
-                                playbackPath = _videoConversionService.GetPlaybackPath(cacheFilePath);
-                                if (!string.IsNullOrEmpty(playbackPath))
-                                {
-                                    // Verify the playback file was actually created
-                                    if (System.IO.File.Exists(playbackPath))
-                                    {
-                                        // Store the playback path for future use (avoid re-copy next time)
-                                        currentImage.ConvertedVideoPath = playbackPath;
-                                    }
-                                    else
-                                    {
-                                        // Playback file creation failed silently
-                                        playbackPath = null;
-                                        FileNameDisplay.Text = $"Error: Failed to create playback file for {System.IO.Path.GetFileName(currentImage.FilePath)}";
-                                    }
-                                }
-                                else
-                                {
-                                    // GetPlaybackPath returned null
-                                    FileNameDisplay.Text = $"Error: Cannot create playback file from cache for {System.IO.Path.GetFileName(currentImage.FilePath)}";
-                                }
-                            }
-                            else if (cacheFilePath != null)
-                            {
-                                // Cache path was calculated but file doesn't exist - try direct cache file playback
-                                FileNameDisplay.Text = $"Cache lookup: expected {System.IO.Path.GetFileName(cacheFilePath)} - not found, checking directory...";
-                                
-                                // List what cache files actually exist for this video
-                                try
-                                {
-                                    var cacheDir = System.IO.Path.Combine(
-                                        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                                        "DaisyView", "VideoCache");
-                                    
-                                    if (System.IO.Directory.Exists(cacheDir))
-                                    {
-                                        var baseFileName = System.IO.Path.GetFileNameWithoutExtension(currentImage.FilePath);
-                                        var cachedFiles = System.IO.Directory.GetFiles(cacheDir, $"{baseFileName}_*.daicache");
-                                        
-                                        if (cachedFiles.Length > 0)
-                                        {
-                                            // Found cache files! Use the first (most recent) one
-                                            var foundCacheFile = cachedFiles[0];
-                                            FileNameDisplay.Text = $"Using cache file: {System.IO.Path.GetFileName(foundCacheFile)}";
-                                            playbackPath = _videoConversionService.GetPlaybackPath(foundCacheFile);
-                                            if (!string.IsNullOrEmpty(playbackPath) && System.IO.File.Exists(playbackPath))
-                                            {
-                                                currentImage.ConvertedVideoPath = playbackPath;
-                                            }
-                                            else
-                                            {
-                                                FileNameDisplay.Text = $"Error: Failed to create playback file";
-                                                playbackPath = null;
-                                            }
-                                        }
-                                        else
-                                        {
-                                            FileNameDisplay.Text = $"Error: No cache files found in cache directory";
-                                        }
-                                    }
-                                    else
-                                    {
-                                        FileNameDisplay.Text = $"Error: Cache directory not found";
-                                    }
-                                }
-                                catch (Exception ex)
-                                {
-                                    FileNameDisplay.Text = $"Error scanning cache: {ex.Message}";
-                                }
-                            }
-                        }
-                        
-                        if (!string.IsNullOrEmpty(playbackPath) && System.IO.File.Exists(playbackPath))
-                        {
-                            // We have a valid playback path from cache
-                            PlayVideo(playbackPath);
-                        }
-                        else
-                        {
-                            // No cache or playback path available, start conversion
-                            DisplayVideoNotSupported(currentImage);
-                            _ = ConvertAndPlayVideoAsync(currentImage);
-                        }
-                    }
-                    else
-                    {
-                        // For MP4, GIF - play directly without conversion
-                        PlayVideo(currentImage.FilePath);
-                    }
+                    HandleVideoDisplay(currentImage);
                 }
                 else
                 {
-                    // Display static image
-                    _videoLoopTimer?.Stop();
-                    VideoDisplay.Stop();
-                    VideoDisplay.Source = null;
-                    
-                    var bitmap = new System.Windows.Media.Imaging.BitmapImage();
-                    bitmap.BeginInit();
-                    bitmap.UriSource = new Uri(System.IO.Path.GetFullPath(currentImage.FilePath), UriKind.Absolute);
-                    bitmap.CacheOption = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
-                    bitmap.EndInit();
-                    bitmap.Freeze();
-
-                    VideoDisplay.Visibility = Visibility.Collapsed;
-                    VideoNotSupportedOverlay.Visibility = Visibility.Collapsed;
-                    ImageDisplay.Visibility = Visibility.Visible;
-                    ImageDisplay.Source = bitmap;
+                    HandleStaticImageDisplay(currentImage);
                 }
                 
-                // Update file name with color based on marked state
-                FileNameDisplay.Text = currentImage.FileName;
-                FileNameDisplay.Foreground = currentImage.IsMarked 
-                    ? System.Windows.Media.Brushes.Red 
-                    : System.Windows.Media.Brushes.White;
+                UpdateFileNameDisplay(currentImage);
             }
             catch (Exception ex)
             {
-                _videoLoopTimer?.Stop();
-                VideoDisplay.Stop();
-                VideoDisplay.Source = null;
-                VideoDisplay.Visibility = Visibility.Collapsed;
-                VideoNotSupportedOverlay.Visibility = Visibility.Collapsed;
-                ImageDisplay.Visibility = Visibility.Visible;
-                ImageDisplay.Source = null;
-                FileNameDisplay.Text = $"Error loading: {currentImage.FileName} - {ex.Message}";
-                FileNameDisplay.Foreground = System.Windows.Media.Brushes.Yellow;
+                HandleDisplayError(currentImage, ex);
             }
+        }
+
+        /// <summary>
+        /// Determines if the file should be played as a video (including GIFs)
+        /// </summary>
+        private static bool ShouldPlayAsVideo(ImageFile image)
+        {
+            return image.IsVideo || MediaTypeHelper.IsGif(image.FilePath);
+        }
+
+        /// <summary>
+        /// Checks if a video format requires conversion to MP4
+        /// </summary>
+        private static bool NeedsConversion(string filePath)
+        {
+            return MediaTypeHelper.NeedsConversion(filePath);
+        }
+
+        /// <summary>
+        /// Handles video file display, including cached and non-cached files
+        /// </summary>
+        private void HandleVideoDisplay(ImageFile currentImage)
+        {
+            if (NeedsConversion(currentImage.FilePath))
+            {
+                var playbackPath = GetCachedVideoPath(currentImage);
+                
+                if (!string.IsNullOrEmpty(playbackPath) && System.IO.File.Exists(playbackPath))
+                {
+                    PlayVideo(playbackPath);
+                }
+                else
+                {
+                    // No cache available, start conversion
+                    DisplayVideoNotSupported(currentImage);
+                    _ = ConvertAndPlayVideoAsync(currentImage);
+                }
+            }
+            else
+            {
+                // MP4 and GIF can play directly
+                PlayVideo(currentImage.FilePath);
+            }
+        }
+
+        /// <summary>
+        /// Attempts to get a cached video path for formats requiring conversion
+        /// </summary>
+        private string? GetCachedVideoPath(ImageFile currentImage)
+        {
+            // First check if ConvertedVideoPath is already set
+            if (!string.IsNullOrEmpty(currentImage.ConvertedVideoPath) && System.IO.File.Exists(currentImage.ConvertedVideoPath))
+            {
+                return currentImage.ConvertedVideoPath;
+            }
+
+            if (_videoConversionService == null)
+                return null;
+
+            // Check if cache file exists by looking it up
+            var cacheFilePath = _videoConversionService.GetConvertedFilePath(currentImage.FilePath);
+            if (cacheFilePath != null && System.IO.File.Exists(cacheFilePath))
+            {
+                var playbackPath = _videoConversionService.GetPlaybackPath(cacheFilePath);
+                if (!string.IsNullOrEmpty(playbackPath) && System.IO.File.Exists(playbackPath))
+                {
+                    currentImage.ConvertedVideoPath = playbackPath;
+                    return playbackPath;
+                }
+            }
+
+            // Try fallback: search cache directory for matching files
+            return TryFindCacheFileFallback(currentImage);
+        }
+
+        /// <summary>
+        /// Fallback method to find cache files when primary lookup fails
+        /// </summary>
+        private string? TryFindCacheFileFallback(ImageFile currentImage)
+        {
+            try
+            {
+                var cacheDir = System.IO.Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "DaisyView", "VideoCache");
+
+                if (!System.IO.Directory.Exists(cacheDir))
+                    return null;
+
+                var baseFileName = System.IO.Path.GetFileNameWithoutExtension(currentImage.FilePath);
+                var cachedFiles = System.IO.Directory.GetFiles(cacheDir, $"{baseFileName}_*.daicache");
+
+                if (cachedFiles.Length > 0 && _videoConversionService != null)
+                {
+                    var playbackPath = _videoConversionService.GetPlaybackPath(cachedFiles[0]);
+                    if (!string.IsNullOrEmpty(playbackPath) && System.IO.File.Exists(playbackPath))
+                    {
+                        currentImage.ConvertedVideoPath = playbackPath;
+                        return playbackPath;
+                    }
+                }
+            }
+            catch
+            {
+                // Silently ignore fallback errors
+            }
+
+            return null;
+        }
+
+        /// <summary>
+        /// Displays a static image
+        /// </summary>
+        private void HandleStaticImageDisplay(ImageFile currentImage)
+        {
+            _videoLoopTimer?.Stop();
+            VideoDisplay.Stop();
+            VideoDisplay.Source = null;
+
+            var bitmap = new System.Windows.Media.Imaging.BitmapImage();
+            bitmap.BeginInit();
+            bitmap.UriSource = new Uri(System.IO.Path.GetFullPath(currentImage.FilePath), UriKind.Absolute);
+            bitmap.CacheOption = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
+            bitmap.EndInit();
+            bitmap.Freeze();
+
+            VideoDisplay.Visibility = Visibility.Collapsed;
+            VideoNotSupportedOverlay.Visibility = Visibility.Collapsed;
+            ImageDisplay.Visibility = Visibility.Visible;
+            ImageDisplay.Source = bitmap;
+        }
+
+        /// <summary>
+        /// Updates the file name display with appropriate color
+        /// </summary>
+        private void UpdateFileNameDisplay(ImageFile currentImage)
+        {
+            FileNameDisplay.Text = currentImage.FileName;
+            FileNameDisplay.Foreground = currentImage.IsMarked
+                ? System.Windows.Media.Brushes.Red
+                : System.Windows.Media.Brushes.White;
+        }
+
+        /// <summary>
+        /// Handles display errors by showing error message
+        /// </summary>
+        private void HandleDisplayError(ImageFile currentImage, Exception ex)
+        {
+            _videoLoopTimer?.Stop();
+            VideoDisplay.Stop();
+            VideoDisplay.Source = null;
+            VideoDisplay.Visibility = Visibility.Collapsed;
+            VideoNotSupportedOverlay.Visibility = Visibility.Collapsed;
+            ImageDisplay.Visibility = Visibility.Visible;
+            ImageDisplay.Source = null;
+            FileNameDisplay.Text = $"Error loading: {currentImage.FileName} - {ex.Message}";
+            FileNameDisplay.Foreground = System.Windows.Media.Brushes.Yellow;
         }
 
         /// <summary>

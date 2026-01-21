@@ -34,8 +34,9 @@ public class FolderNavigationEventArgs : EventArgs
 /// ViewModel for the main application window
 /// Coordinates between the file system tree view and thumbnail view
 /// </summary>
-public class MainWindowViewModel : ViewModelBase
+public class MainWindowViewModel : ViewModelBase, IDisposable
 {
+    private bool _disposed = false;
     private readonly SettingsService _settingsService;
     private readonly LoggingService _loggingService;
     private readonly FileSystemService _fileSystemService;
@@ -460,51 +461,21 @@ public class MainWindowViewModel : ViewModelBase
     /// </summary>
     private async Task ExpandFolderAsync(TreeNode? node)
     {
-        if (node == null)
-            return;
-
-        _loggingService.LogTrace("ExpandFolderAsync called for: {FolderPath}", node.FullPath);
-
-        try
-        {
-            // Remove placeholder if it exists
-            var placeholder = node.Children.FirstOrDefault(c => c.FullPath == "");
-            if (placeholder != null)
-            {
-                _loggingService.LogTrace("Removing placeholder from: {FolderPath}", node.FullPath);
-                node.Children.Remove(placeholder);
-            }
-
-            if (node.Children.Count == 0)
-            {
-                // Load children for this node asynchronously
-                _loggingService.LogTrace("Loading subfolders for: {FolderPath}", node.FullPath);
-                
-                // Run file system operation on background thread
-                var subfolders = await Task.Run(() => _fileSystemService.GetSubfolders(node.FullPath, node));
-                
-                _loggingService.LogTrace("Got {SubfolderCount} subfolders for: {FolderPath}", subfolders.Count, node.FullPath);
-                
-                foreach (var subfolder in subfolders)
-                {
-                    node.Children.Add(subfolder);
-                }
-                
-                _loggingService.LogTrace("Expanded folder: {FolderPath}", node.FullPath);
-            }
-
-            node.IsExpanded = true;
-        }
-        catch (Exception ex)
-        {
-            _loggingService.LogError("Failed to expand folder {FolderPath}", ex, node.FullPath);
-        }
+        await ExpandFolderInternalAsync(node);
     }
 
     /// <summary>
     /// Expands a folder in the tree view and loads its children asynchronously
     /// </summary>
     public async void ExpandFolder(TreeNode? node)
+    {
+        await ExpandFolderInternalAsync(node);
+    }
+
+    /// <summary>
+    /// Internal implementation for folder expansion - shared by both async and sync callers
+    /// </summary>
+    private async Task ExpandFolderInternalAsync(TreeNode? node)
     {
         if (node == null)
             return;
@@ -525,17 +496,17 @@ public class MainWindowViewModel : ViewModelBase
             {
                 // Load children for this node asynchronously
                 _loggingService.LogTrace("Loading subfolders for: {FolderPath}", node.FullPath);
-                
+
                 // Run file system operation on background thread
                 var subfolders = await Task.Run(() => _fileSystemService.GetSubfolders(node.FullPath, node));
-                
+
                 _loggingService.LogTrace("Got {SubfolderCount} subfolders for: {FolderPath}", subfolders.Count, node.FullPath);
-                
+
                 foreach (var subfolder in subfolders)
                 {
                     node.Children.Add(subfolder);
                 }
-                
+
                 _loggingService.LogTrace("Expanded folder: {FolderPath}", node.FullPath);
             }
 
@@ -925,7 +896,34 @@ public class MainWindowViewModel : ViewModelBase
     /// </summary>
     public void Dispose()
     {
-        _fileSystemService.Dispose();
-        _thumbnailService.CancelBackgroundGeneration();
+        Dispose(true);
+        GC.SuppressFinalize(this);
+    }
+
+    /// <summary>
+    /// Protected dispose method for proper disposal pattern
+    /// </summary>
+    protected virtual void Dispose(bool disposing)
+    {
+        if (_disposed)
+            return;
+
+        if (disposing)
+        {
+            // Dispose managed resources
+            _fileSystemService.Dispose();
+            _thumbnailService.Dispose();
+            
+            // Unsubscribe from image property changes
+            if (_images != null)
+            {
+                foreach (var img in _images)
+                {
+                    img.PropertyChanged -= Image_PropertyChanged;
+                }
+            }
+        }
+
+        _disposed = true;
     }
 }

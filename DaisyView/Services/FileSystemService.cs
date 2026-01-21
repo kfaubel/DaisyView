@@ -4,6 +4,8 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.IO;
+using DaisyView.Constants;
+using DaisyView.Helpers;
 using DaisyView.Models;
 
 namespace DaisyView.Services;
@@ -12,11 +14,11 @@ namespace DaisyView.Services;
 /// Manages file system operations including tree view building and watching for changes
 /// Monitors open folders for real-time updates while ignoring changes to closed folders
 /// </summary>
-public class FileSystemService
+public class FileSystemService : IDisposable
 {
+    private bool _disposed = false;
     private readonly LoggingService _loggingService;
     private readonly Dictionary<string, FileSystemWatcher> _watchers = new();
-    private static readonly string[] ImageExtensions = { ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tif", ".tiff", ".webp", ".webm", ".mp4", ".avi", ".mpeg", ".mpg" };
 
     public event EventHandler<FileSystemEventArgs>? FileSystemChanged;
 
@@ -146,17 +148,13 @@ public class FileSystemService
             var directory = new DirectoryInfo(folderPath);
             
             var files = directory.GetFiles()
-                .Where(f => ImageExtensions.Contains(f.Extension, StringComparer.OrdinalIgnoreCase))
+                .Where(f => MediaTypeHelper.IsSupportedMedia(f.FullName))
                 .OrderBy(f => f.Name)
                 .ToList();
 
             foreach (var file in files)
             {
-                var isVideo = string.Equals(file.Extension, ".webm", StringComparison.OrdinalIgnoreCase) || 
-                             string.Equals(file.Extension, ".mp4", StringComparison.OrdinalIgnoreCase) ||
-                             string.Equals(file.Extension, ".avi", StringComparison.OrdinalIgnoreCase) ||
-                             string.Equals(file.Extension, ".mpeg", StringComparison.OrdinalIgnoreCase) ||
-                             string.Equals(file.Extension, ".mpg", StringComparison.OrdinalIgnoreCase);
+                var isVideo = MediaTypeHelper.IsVideoFile(file.FullName);
                 images.Add(new ImageFile
                 {
                     FileName = file.Name,
@@ -206,6 +204,7 @@ public class FileSystemService
             watcher.Deleted += OnFileSystemChanged;
             watcher.Renamed += OnFileSystemChanged;
             watcher.Changed += OnFileSystemChanged;
+            watcher.Error += OnFileSystemWatcherError;
 
             watcher.EnableRaisingEvents = true;
             _watchers[folderPath] = watcher;
@@ -303,15 +302,46 @@ public class FileSystemService
     }
 
     /// <summary>
+    /// Handles FileSystemWatcher errors
+    /// </summary>
+    private void OnFileSystemWatcherError(object sender, ErrorEventArgs e)
+    {
+        var exception = e.GetException();
+        _loggingService.LogError("FileSystemWatcher error: {Message}", exception, exception?.Message ?? "Unknown error");
+    }
+
+    /// <summary>
     /// Cleans up all watchers
     /// </summary>
     public void Dispose()
     {
-        foreach (var watcher in _watchers.Values)
+        Dispose(true);
+        GC.SuppressFinalize(this);
+    }
+
+    /// <summary>
+    /// Protected dispose method for proper disposal pattern
+    /// </summary>
+    protected virtual void Dispose(bool disposing)
+    {
+        if (_disposed)
+            return;
+
+        if (disposing)
         {
-            watcher.EnableRaisingEvents = false;
-            watcher.Dispose();
+            foreach (var watcher in _watchers.Values)
+            {
+                watcher.EnableRaisingEvents = false;
+                watcher.Created -= OnFileSystemChanged;
+                watcher.Deleted -= OnFileSystemChanged;
+                watcher.Renamed -= OnFileSystemChanged;
+                watcher.Changed -= OnFileSystemChanged;
+                watcher.Error -= OnFileSystemWatcherError;
+                watcher.Dispose();
+            }
+            _watchers.Clear();
         }
-        _watchers.Clear();
+
+        _disposed = true;
     }
 }

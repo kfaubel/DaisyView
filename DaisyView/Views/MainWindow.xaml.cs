@@ -31,23 +31,36 @@ public partial class MainWindow : Window
         RestoreWindowPlacement();
 
         // Handle window closing to clean up resources and save placement
-        Closing += (s, e) =>
-        {
-            // Save window placement before closing
-            if (_settingsService != null)
-            {
-                _settingsService.SaveWindowPlacement(
-                    this.Width,
-                    this.Height,
-                    this.Left,
-                    this.Top,
-                    this.WindowState.ToString());
-            }
-            _viewModel?.Dispose();
-        };
+        Closing += MainWindow_Closing;
 
         // Wire up events
         Loaded += MainWindow_Loaded;
+    }
+
+    /// <summary>
+    /// Handles window closing - saves settings and cleans up resources
+    /// </summary>
+    private void MainWindow_Closing(object? sender, System.ComponentModel.CancelEventArgs e)
+    {
+        // Unsubscribe from ViewModel events
+        if (_viewModel != null)
+        {
+            _viewModel.PropertyChanged -= ViewModel_PropertyChanged;
+        }
+
+        // Save window placement before closing
+        if (_settingsService != null)
+        {
+            _settingsService.SaveWindowPlacement(
+                this.Width,
+                this.Height,
+                this.Left,
+                this.Top,
+                this.WindowState.ToString());
+        }
+
+        // Dispose the ViewModel
+        _viewModel?.Dispose();
     }
 
     /// <summary>
@@ -544,125 +557,5 @@ public partial class MainWindow : Window
         var helpWindow = new HelpWindow();
         helpWindow.Owner = this;
         helpWindow.ShowDialog();
-    }
-}
-
-/// <summary>
-/// Value converter to convert boolean to brush for red/default borders
-/// </summary>
-public class BoolToRedBrushConverter : System.Windows.Data.IValueConverter
-{
-    public object Convert(object value, System.Type targetType, object parameter, System.Globalization.CultureInfo culture)
-    {
-        if (value is bool isActive && isActive)
-        {
-            return new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(255, 0, 0));
-        }
-        return new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(200, 200, 200));
-    }
-
-    public object ConvertBack(object value, System.Type targetType, object parameter, System.Globalization.CultureInfo culture)
-    {
-        throw new NotImplementedException();
-    }
-}
-
-/// <summary>
-/// Value converter to convert byte array thumbnail data to BitmapImage
-/// </summary>
-public class ByteArrayToBitmapImageConverter : System.Windows.Data.IValueConverter
-{
-    public object? Convert(object value, System.Type targetType, object parameter, System.Globalization.CultureInfo culture)
-    {
-        if (value is byte[] thumbnailData && thumbnailData.Length > 0)
-        {
-            try
-            {
-                var bitmap = new System.Windows.Media.Imaging.BitmapImage();
-                bitmap.BeginInit();
-                bitmap.StreamSource = new System.IO.MemoryStream(thumbnailData);
-                bitmap.CacheOption = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
-                bitmap.EndInit();
-                bitmap.Freeze();
-                return bitmap;
-            }
-            catch
-            {
-                return null;
-            }
-        }
-        return null;
-    }
-
-    public object ConvertBack(object value, System.Type targetType, object parameter, System.Globalization.CultureInfo culture)
-    {
-        throw new NotImplementedException();
-    }
-}
-
-/// <summary>
-/// Value converter to convert boolean to white or gray brush
-/// </summary>
-public class BoolToBrushConverter : System.Windows.Data.IValueConverter
-{
-    public object Convert(object value, System.Type targetType, object parameter, System.Globalization.CultureInfo culture)
-    {
-        if (value is bool isEnabled && isEnabled)
-        {
-            return new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(255, 255, 255));
-        }
-        return new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(102, 102, 102));
-    }
-
-    public object ConvertBack(object value, System.Type targetType, object parameter, System.Globalization.CultureInfo culture)
-    {
-        throw new NotImplementedException();
-    }
-}
-
-/// <summary>
-/// Converts boolean audio enabled state to speaker icon
-/// </summary>
-public class AudioIconConverter : System.Windows.Data.IValueConverter
-{
-    public object Convert(object value, System.Type targetType, object parameter, System.Globalization.CultureInfo culture)
-    {
-        if (value is bool audioEnabled && audioEnabled)
-        {
-            return "🔊"; // Speaker icon
-        }
-        return "🔇"; // Muted speaker icon
-    }
-
-    public object ConvertBack(object value, System.Type targetType, object parameter, System.Globalization.CultureInfo culture)
-    {
-        throw new NotImplementedException();
-    }
-}
-
-/// <summary>
-/// Converts boolean audio enabled state to gold or grey color
-/// </summary>
-public class AudioColorConverter : System.Windows.Data.IMultiValueConverter
-{
-    public object Convert(object[] values, System.Type targetType, object parameter, System.Globalization.CultureInfo culture)
-    {
-        if (values.Length > 0 && values[0] is bool audioEnabled)
-        {
-            if (audioEnabled)
-            {
-                return new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(255, 215, 0)); // Gold
-            }
-            else
-            {
-                return new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(128, 128, 128)); // Grey
-            }
-        }
-        return new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(255, 255, 255)); // White
-    }
-
-    public object[] ConvertBack(object value, System.Type[] targetTypes, object parameter, System.Globalization.CultureInfo culture)
-    {
-        throw new NotImplementedException();
     }
 }
