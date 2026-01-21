@@ -1,86 +1,120 @@
-# DaisyView - Quick Reference Guide
+# DaisyView - Developer Quick Reference
 
-## File Location Quick Reference
+## Project Structure
 
-### Models
-- `Models/AppSettings.cs` - Application configuration model
-- `Models/TreeNode.cs` - File system tree node
-- `Models/ImageFile.cs` - Image file representation
-- `Models/GitHubRelease.cs` - GitHub release info
+```
+DaisyView/
+├── Constants/
+│   └── AppConstants.cs          # Centralized magic numbers/strings
+├── Converters/
+│   └── ValueConverters.cs       # XAML value converters
+├── Helpers/
+│   └── MediaTypeHelper.cs       # Media file type detection
+├── Models/
+│   ├── AppSettings.cs           # Application configuration
+│   ├── TreeNode.cs              # File system tree node
+│   ├── ImageFile.cs             # Image/video file representation
+│   └── GitHubRelease.cs         # GitHub release info for updates
+├── Services/
+│   ├── SettingsService.cs       # JSON settings persistence
+│   ├── LoggingService.cs        # Serilog-based logging
+│   ├── FileSystemService.cs     # File system operations & watching
+│   ├── ThumbnailService.cs      # Thumbnail generation
+│   ├── VideoConversionService.cs # Video conversion with caching
+│   └── UpdateCheckService.cs    # GitHub update checking
+├── ViewModels/
+│   ├── RelayCommand.cs          # ICommand implementation
+│   └── MainWindowViewModel.cs   # Main application logic
+└── Views/
+    ├── MainWindow.xaml/.cs      # Main UI
+    ├── SlideshowWindow.xaml/.cs # Fullscreen slideshow
+    └── HelpWindow.xaml/.cs      # Help dialog
 
-### Services
-- `Services/SettingsService.cs` - JSON settings management
-- `Services/LoggingService.cs` - Serilog-based logging
-- `Services/FileSystemService.cs` - File system operations & watching
-- `Services/ThumbnailService.cs` - Thumbnail generation (supports WebM via FFmpeg)
-- `Services/VideoConversionService.cs` - WebM to MP4 conversion with caching
-- `Services/UpdateCheckService.cs` - GitHub update checking
+DaisyView.Tests/
+├── AppConstantsTests.cs
+├── AppSettingsTests.cs
+├── FileSystemServiceTests.cs
+├── ImageFileTests.cs
+├── MediaTypeHelperTests.cs
+├── RandomShuffleTests.cs
+├── RelayCommandTests.cs
+├── SettingsServiceTests.cs
+├── ThumbnailServiceTests.cs
+├── TreeNodeTests.cs
+└── UpdateCheckServiceTests.cs
+```
 
-### ViewModels
-- `ViewModels/ViewModelBase.cs` - Base class with INotifyPropertyChanged
-- `ViewModels/RelayCommand.cs` - ICommand implementation
-- `ViewModels/MainWindowViewModel.cs` - Main application logic
-
-### Views
-- `Views/MainWindow.xaml` / `MainWindow.xaml.cs` - Main UI
-- `Views/SlideshowWindow.xaml` / `SlideshowWindow.xaml.cs` - Fullscreen slideshow
-- `Views/MoveToDialog.xaml` / `MoveToDialog.xaml.cs` - Move files dialog
-- `App.xaml` / `App.xaml.cs` - Application setup
-
-### Tests
-- `Tests/SettingsServiceTests.cs`
-- `Tests/UpdateCheckServiceTests.cs`
-- `Tests/ThumbnailServiceTests.cs`
-- `Tests/ImageFileTests.cs`
-- `Tests/TreeNodeTests.cs`
-- `Tests/FileSystemServiceTests.cs`
-- `Tests/RelayCommandTests.cs`
-
-## Common Tasks
+## Common Development Tasks
 
 ### Adding a New Feature
 1. Create model (if needed) in `Models/`
 2. Create/update service in `Services/`
 3. Add command/property to `MainWindowViewModel.cs`
-4. Update XAML binding in `Views/MainWindow.xaml`
-5. Add code-behind logic in `Views/MainWindow.xaml.cs`
-6. Add unit tests in `DaisyView.Tests/`
+4. Update XAML binding in `Views/`
+5. Add unit tests in `DaisyView.Tests/`
 
 ### Adding a New Command
-1. Add command property to ViewModel:
-   ```csharp
-   public ICommand MyCommand => _myCommand ??= new RelayCommand(MyMethod);
-   private ICommand? _myCommand;
-   ```
-2. Implement the method:
-   ```csharp
-   private void MyMethod(object? parameter) { }
-   ```
-3. Bind in XAML:
-   ```xml
-   <Button Command="{Binding MyCommand}" />
-   ```
-
-### Modifying Theme Colors
-1. Edit color definitions in `App.xaml` under `Application.Resources`
-2. Update the corresponding brush resources
-3. Theme is applied at startup in `App.xaml.cs` based on settings
-
-### Adding Logging
 ```csharp
-_loggingService.LogUserAction("Action description", "Additional details");
+// In MainWindowViewModel.cs
+public ICommand MyCommand => _myCommand ??= new RelayCommand(MyMethod);
+private ICommand? _myCommand;
+
+private void MyMethod(object? parameter) { /* implementation */ }
+```
+```xml
+<!-- In XAML -->
+<Button Command="{Binding MyCommand}" />
+```
+
+### Using MediaTypeHelper
+```csharp
+using DaisyView.Helpers;
+
+MediaTypeHelper.IsSupportedMedia(filePath);  // Any supported file
+MediaTypeHelper.IsStaticImage(filePath);     // jpg, png, bmp, etc.
+MediaTypeHelper.IsVideoFile(filePath);       // mp4, gif, webm, etc.
+MediaTypeHelper.NeedsConversion(filePath);   // webm, avi, mpeg
+MediaTypeHelper.IsGif(filePath);
+MediaTypeHelper.IsMp4(filePath);
+```
+
+### Using AppConstants
+```csharp
+using DaisyView.Constants;
+
+// Thumbnail sizes
+AppConstants.ThumbnailSizes.Small;           // "Small"
+AppConstants.ThumbnailSizes.SmallPixels;     // 100
+AppConstants.ThumbnailSizes.GetPixelSize("Medium"); // 200
+
+// Timing
+AppConstants.Timing.CursorHideDelay;         // TimeSpan (2 seconds)
+AppConstants.Timing.VideoLoopCheckInterval;  // TimeSpan (100ms)
+AppConstants.Timing.DefaultCacheMaxSizeBytes; // 20 GB
+
+// Paths
+AppConstants.Paths.AppDataFolderName;        // "DaisyView"
+AppConstants.Paths.VideoCacheFolderName;     // "VideoCache"
+
+// Colors
+AppConstants.Colors.ActiveGold;              // "#FFD700"
+```
+
+### Logging
+```csharp
+_loggingService.LogUserAction("Action", "Details");
 _loggingService.LogInfo("Information message");
 _loggingService.LogWarning("Warning message");
-_loggingService.LogError("Error occurred", ex);
+_loggingService.LogError("Error occurred", exception);
 _loggingService.LogTrace("Detailed trace info");
 ```
 
-### Reading/Writing Settings
+### Settings Service
 ```csharp
-// Read
+// Read settings
 var settings = _settingsService.GetSettings();
 
-// Write specific setting
+// Update a setting (auto-saves)
 _settingsService.UpdateSetting(s => s.Theme = "Dark");
 
 // Favorites
@@ -88,240 +122,129 @@ _settingsService.AddFavoritFolder(path);
 _settingsService.RemoveFavoriteFolder(path);
 _settingsService.IsFavorite(path);
 
+// Window placement
+_settingsService.SaveWindowPlacement(width, height, left, top, state);
+_settingsService.GetWindowWidth();
+
 // Random order
 _settingsService.SaveRandomOrder(folderPath, fileList);
 _settingsService.GetRandomOrder(folderPath);
 _settingsService.ClearRandomOrder(folderPath);
 ```
 
-### File System Operations
+### File System Service
 ```csharp
-// Get roots and subfolders
+// Navigation
 var drives = _fileSystemService.GetRootDrives();
 var subfolders = _fileSystemService.GetSubfolders(folderPath);
-
-// Get images (includes WebM video files)
 var images = _fileSystemService.GetImageFiles(folderPath);
 
-// Watch for changes
+// File watching
 _fileSystemService.WatchFolder(folderPath);
 _fileSystemService.UnwatchFolder(folderPath);
 
 // File operations
 await _fileSystemService.MoveFilesAsync(sourceList, destinationPath);
 await _fileSystemService.DeleteFilesAsync(fileList);
-_fileSystemService.CreateFolder(folderPath, folderName);
 ```
 
-### Video Conversion (WebM Support)
+### Video Conversion
 ```csharp
-// Convert WebM to MP4 (with caching)
-var mp4Path = await _videoConversionService.ConvertWebmToMp4Async(webmFilePath);
+// Convert to MP4 (cached)
+var mp4Path = await _videoConversionService.ConvertWebmToMp4Async(videoPath);
 
-// Clear entire cache
+// Cache management
 _videoConversionService.ClearCache();
+```
 
-// Cache settings in settings.json
+## IDisposable Pattern
+
+Classes implementing IDisposable follow this pattern:
+```csharp
+public class MyService : IDisposable
 {
-  "VideoCacheMaxSizeBytes": 21474836480,    // 20 GB
-  "VideoCacheMaxAgeHours": 720              // 30 days
+    private bool _disposed;
+
+    public void Dispose()
+    {
+        Dispose(true);
+        GC.SuppressFinalize(this);
+    }
+
+    protected virtual void Dispose(bool disposing)
+    {
+        if (_disposed) return;
+        if (disposing)
+        {
+            // Dispose managed resources
+        }
+        _disposed = true;
+    }
 }
 ```
 
-## Key Design Patterns
+## XAML Binding Examples
 
-### MVVM Pattern
-- **Model**: AppSettings, TreeNode, ImageFile, GitHubRelease
-- **View**: XAML files (MainWindow, SlideshowWindow, MoveToDialog)
-- **ViewModel**: MainWindowViewModel with properties and commands
-- **Binding**: Two-way binding via {Binding PropertyName}
-
-### Command Pattern
-- Commands implement ICommand interface
-- RelayCommand executes Action<T> with optional predicate
-- Commands enable/disable based on CanExecute predicate
-
-### Observer Pattern
-- INotifyPropertyChanged for property binding
-- Event handlers for tree expansion, selection
-- Custom events (e.g., FolderNavigated)
-
-### Factory Pattern
-- SettingsService creates/loads AppSettings
-- FileSystemService creates TreeNode and ImageFile objects
-
-## Common Binding Scenarios
-
-### Simple Property Binding
 ```xml
+<!-- Simple binding -->
 <TextBlock Text="{Binding PropertyName}" />
-```
 
-### Two-Way Binding
-```xml
+<!-- Two-way binding -->
 <ToggleButton IsChecked="{Binding RandomEnabled, Mode=TwoWay}" />
-```
 
-### Command Binding
-```xml
-<Button Command="{Binding ToggleFavoriteCommand}" />
-```
+<!-- Command with parameter -->
+<Button Command="{Binding MyCommand}" CommandParameter="{Binding SelectedItem}" />
 
-### Collection Binding with Template
-```xml
+<!-- Collection with template -->
 <ItemsControl ItemsSource="{Binding Images}">
     <ItemsControl.ItemTemplate>
         <DataTemplate>
-            <!-- Item template here -->
+            <Image Source="{Binding ThumbnailData, Converter={StaticResource ByteArrayConverter}}" />
         </DataTemplate>
     </ItemsControl.ItemTemplate>
 </ItemsControl>
 ```
 
-## Debugging Tips
-
-### Enable Trace Logging
-Set LoggingLevel to "Trace" in settings.json:
-```json
-{
-  "LoggingLevel": "Trace"
-}
-```
-
-### View Settings File
-Navigate to: `%APPDATA%\Local\DaisyView\settings.json`
-
-### View Log Files
-Navigate to: `%APPDATA%\Local\DaisyView\logs\`
-
-### Check Update Checking
-Monitor logs for GitHub API responses
-
-### TreeView Binding Issues
-- Verify ItemsSource binding on TreeView
-- Check ItemTemplate is properly structured
-- Ensure Children collection exists on TreeNode
-
-### Command Not Firing
-- Verify command property exists in ViewModel
-- Check binding path is correct
-- Ensure CanExecute predicate doesn't block execution
-
-## Configuration Keys in Settings
-
-```json
-{
-  "Theme": "Light|Dark|System",
-  "LastActiveFolderPath": "C:\\Path\\To\\Folder",
-  "LoggingLevel": "Trace|Information|Warning|Error",
-  "FavoriteFolders": ["C:\\Folder1", "C:\\Folder2"],
-  "ThumbnailSize": "Small|Medium|Large",
-  "VideoCacheMaxSizeBytes": 21474836480,
-  "VideoCacheMaxAgeHours": 720,
-  "RandomOrderCache": {
-    "C:\\Folder": ["file1.jpg", "file2.jpg"]
-  },
-  "RandomEnabledFolders": ["C:\\Folder"]
-}
-```
-
-## Event Hooks
-
-### Available Events
-- `MainWindowViewModel.FolderNavigated` - When user opens a folder
-- `FileSystemService.FileSystemChanged` - When watched folder contents change
-- `ThumbnailService.ThumbnailGenerated` - When a thumbnail is ready
-- `Window.Closing` - When application is closing
-
-## Resource Keys
-
-### Colors
-- `LightBackground`, `DarkBackground`
-- `LightForeground`, `DarkForeground`
-- `LightBorder`, `DarkBorder`
-- `LightPanel`, `DarkPanel`
-- `LightAccent`, `DarkAccent`
-
-### Brushes
-- `BackgroundBrush`
-- `ForegroundBrush`
-- `BorderBrush`
-- `PanelBrush`
-- `AccentBrush`
-
-## Performance Considerations
-
-- Thumbnail generation is async to avoid UI blocking
-- Tree view uses lazy loading to avoid loading all folders
-- File system watching only on open folders
-- Settings cached in memory during runtime
-- Logs are written to disk asynchronously by Serilog
-
-## Code Style Guidelines
-
-- Use nullable reference types (`string?`)
-- Use required keyword for essential properties
-- Use C# latest features (string interpolation, switch expressions)
-- Always dispose IDisposable objects
-- Use async/await for long-running operations
-- Add XML documentation to public members
-- Use meaningful names and helper comments
-
----
-
 ## Quick Commands
 
-### Build
-```bash
-# Debug build
+```powershell
+# Build
 dotnet build DaisyView.sln
-
-# Release build
 dotnet build DaisyView.sln --configuration Release
 
-# Publish for distribution
-dotnet publish -c Release -o ./publish
-```
-
-### Testing
-```bash
-# Run all tests
+# Test
 dotnet test DaisyView.sln
 
-# Run specific test file
-dotnet test DaisyView.Tests/SettingsServiceTests.cs
+# Run
+dotnet run --project DaisyView/DaisyView.csproj
+
+# Publish
+dotnet publish DaisyView -c Release -r win-x64 --no-self-contained --output ./publish
+
+# Release (automated)
+.\release.ps1 patch   # 1.0.4 → 1.0.5
+.\release.ps1 minor   # 1.0.4 → 1.1.0
+.\release.ps1 major   # 1.0.4 → 2.0.0
 ```
 
-### Creating a Release
-```bash
-# 1. Update version in DaisyView/DaisyView.csproj
-# 2. Build and test
-dotnet build DaisyView.sln --configuration Release
-dotnet test DaisyView.sln
+## File Locations
 
-# 3. Commit version change
-git add DaisyView/DaisyView.csproj
-git commit -m "chore: bump version to X.Y.Z"
-git push origin main
+| Item | Path |
+|------|------|
+| Settings | `%LOCALAPPDATA%\DaisyView\settings.json` |
+| Logs | `%LOCALAPPDATA%\DaisyView\Logs\` |
+| Video Cache | `%LOCALAPPDATA%\DaisyView\VideoCache\` |
+| Version | `DaisyView/DaisyView.csproj` (`<Version>` tag) |
 
-# 4. Create git tag
-git tag -a vX.Y.Z -m "Release version X.Y.Z"
-git push origin vX.Y.Z
+## Debugging Tips
 
-# 5. Create release on GitHub Releases page
-# See GITHUB_RELEASES_GUIDE.md for detailed instructions
-```
+- **Enable trace logging**: Set `LoggingLevel` to `"Trace"` in settings.json
+- **View logs**: Check `%LOCALAPPDATA%\DaisyView\Logs\`
+- **Command not firing**: Verify binding path and CanExecute predicate
+- **Binding issues**: Check Output window for binding errors
 
----
+## Links
 
-**Quick Links**:
-- Settings location: `%APPDATA%\Local\DaisyView\settings.json`
-- Logs location: `%APPDATA%\Local\DaisyView\logs\`
-- Cache location: `%APPDATA%\Local\DaisyView\VideoCache\`
-- Releases: https://github.com/kfaubel/DaisyView/releases
-- Issues: https://github.com/kfaubel/DaisyView/issues
-- Documentation: 
-  - [README.md](README.md) - Project overview
-  - [QUICK_REFERENCE.md](QUICK_REFERENCE.md) - This file
-  - [GITHUB_RELEASES_GUIDE.md](GITHUB_RELEASES_GUIDE.md) - Release instructions
-  - [DEVELOPMENT.md](DEVELOPMENT.md) - Development guide
+- [README.md](README.md) - Project overview and user documentation
+- [Releases](https://github.com/kfaubel/DaisyView/releases)
+- [Issues](https://github.com/kfaubel/DaisyView/issues)
