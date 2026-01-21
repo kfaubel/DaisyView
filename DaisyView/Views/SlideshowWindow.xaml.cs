@@ -20,19 +20,32 @@ public partial class SlideshowWindow : Window
     private List<ImageFile> _images = new();
     private int _currentImageIndex;
         private DispatcherTimer? _videoLoopTimer;
+        private DispatcherTimer? _cursorHideTimer;
         private VideoConversionService? _videoConversionService;
+        private bool _isCursorHidden = false;
+        private bool _audioEnabled = true;
 
-        public SlideshowWindow(List<ImageFile> images, int activeImageIndex = 0, VideoConversionService? videoConversionService = null)
+        public SlideshowWindow(List<ImageFile> images, int activeImageIndex = 0, VideoConversionService? videoConversionService = null, bool audioEnabled = true)
         {
             InitializeComponent();
 
             _images = images;
             _currentImageIndex = Math.Max(0, activeImageIndex);
             _videoConversionService = videoConversionService;
+            _audioEnabled = audioEnabled;
             // Setup video looping timer
             _videoLoopTimer = new DispatcherTimer();
             _videoLoopTimer.Interval = TimeSpan.FromMilliseconds(100);
             _videoLoopTimer.Tick += VideoLoopTimer_Tick;
+
+            // Setup cursor hide timer
+            _cursorHideTimer = new DispatcherTimer();
+            _cursorHideTimer.Interval = TimeSpan.FromSeconds(2);
+            _cursorHideTimer.Tick += CursorHideTimer_Tick;
+            
+            // Ensure cursor is visible initially
+            Mouse.OverrideCursor = null;
+            _isCursorHidden = false;
 
             // Wire up MediaElement error handling
             VideoDisplay.MediaFailed += VideoDisplay_MediaFailed;
@@ -44,17 +57,46 @@ public partial class SlideshowWindow : Window
             PreviewKeyDown += SlideshowWindow_PreviewKeyDown;
             MouseDown += SlideshowWindow_MouseDown;
             MouseWheel += SlideshowWindow_MouseWheel;
-            Closed += (s, e) => _videoLoopTimer?.Stop();
+            MouseMove += SlideshowWindow_MouseMove;
+            Closed += (s, e) => 
+            {
+                _videoLoopTimer?.Stop();
+                _cursorHideTimer?.Stop();
+                // Restore cursor visibility when closing slideshow
+                Mouse.OverrideCursor = null;
+            };
         }
 
         /// <summary>
         /// Handles MediaElement playback errors
         /// </summary>
+        /// <summary>
+        /// Handles MediaElement playback errors
+        /// </summary>
         private void VideoDisplay_MediaFailed(object? sender, System.Windows.ExceptionRoutedEventArgs e)
         {
-            FileNameDisplay.Text = $"Media playback error: {e.ErrorException?.Message ?? "Unknown error"}";
+            _videoLoopTimer?.Stop();
+            var errorMsg = e.ErrorException?.Message ?? "Unknown error";
+            FileNameDisplay.Text = $"Media error: {errorMsg}";
             FileNameDisplay.Foreground = System.Windows.Media.Brushes.Yellow;
-            VideoNotSupportedOverlay.Visibility = Visibility.Visible;
+        }
+
+        /// <summary>
+        /// Handles MediaElement when file is opened and ready to play
+        /// </summary>
+        private void VideoDisplay_MediaOpened(object? sender, RoutedEventArgs e)
+        {
+            try
+            {
+                // File is loaded and ready, start playback
+                _videoLoopTimer?.Start();
+                VideoDisplay.Play();
+            }
+            catch (Exception ex)
+            {
+                FileNameDisplay.Text = $"Playback error: {ex.Message}";
+                FileNameDisplay.Foreground = System.Windows.Media.Brushes.Yellow;
+            }
         }
 
         /// <summary>
@@ -93,29 +135,131 @@ public partial class SlideshowWindow : Window
             
             try
             {
-                if (currentImage.IsVideo)
+                // Check if it's a GIF (animated or not) - treat animated GIFs as videos
+                bool isAnimatedGif = System.IO.Path.GetExtension(currentImage.FilePath).Equals(".gif", StringComparison.OrdinalIgnoreCase);
+                
+                if (currentImage.IsVideo || isAnimatedGif)
                 {
-                    // Check if we have a converted video file ready
-                    if (!string.IsNullOrEmpty(currentImage.ConvertedVideoPath) && System.IO.File.Exists(currentImage.ConvertedVideoPath))
+                    // For WebM files, check if we have a converted cached version
+                    bool isWebM = System.IO.Path.GetExtension(currentImage.FilePath).Equals(".webm", StringComparison.OrdinalIgnoreCase);
+                    
+                    bool isAvi = System.IO.Path.GetExtension(currentImage.FilePath).Equals(".avi", StringComparison.OrdinalIgnoreCase);
+                    bool isMpeg = System.IO.Path.GetExtension(currentImage.FilePath).Equals(".mpeg", StringComparison.OrdinalIgnoreCase) ||
+                                 System.IO.Path.GetExtension(currentImage.FilePath).Equals(".mpg", StringComparison.OrdinalIgnoreCase);
+                    
+                    if (isWebM || isAvi || isMpeg)
                     {
-                        PlayVideo(currentImage.ConvertedVideoPath);
-                    }
-                    else if (_videoConversionService != null)
-                    {
-                        // Start conversion asynchronously and show thumbnail while converting
-                        // Intentional fire-and-forget: conversion runs in background, UI updates via Dispatcher
-                        DisplayVideoNotSupported(currentImage);
-                        _ = ConvertAndPlayVideoAsync(currentImage);
+                        // For WebM, AVI, MPEG/MPG - check for cache/conversion first
+                        // (MediaElement doesn't natively support these formats)
+                        string? playbackPath = null;
+                        string? cacheFilePath = null;
+                        
+                        // First check if ConvertedVideoPath is already set
+                        if (!string.IsNullOrEmpty(currentImage.ConvertedVideoPath) && System.IO.File.Exists(currentImage.ConvertedVideoPath))
+                        {
+                            // Already have a playback path, use it
+                            playbackPath = currentImage.ConvertedVideoPath;
+                        }
+                        else if (_videoConversionService != null)
+                        {
+                            // Check if cache file exists by looking it up
+                            cacheFilePath = _videoConversionService.GetConvertedFilePath(currentImage.FilePath);
+                            if (cacheFilePath != null && System.IO.File.Exists(cacheFilePath))
+                            {
+                                // Cache file exists - convert to temporary playback MP4
+                                playbackPath = _videoConversionService.GetPlaybackPath(cacheFilePath);
+                                if (!string.IsNullOrEmpty(playbackPath))
+                                {
+                                    // Verify the playback file was actually created
+                                    if (System.IO.File.Exists(playbackPath))
+                                    {
+                                        // Store the playback path for future use (avoid re-copy next time)
+                                        currentImage.ConvertedVideoPath = playbackPath;
+                                    }
+                                    else
+                                    {
+                                        // Playback file creation failed silently
+                                        playbackPath = null;
+                                        FileNameDisplay.Text = $"Error: Failed to create playback file for {System.IO.Path.GetFileName(currentImage.FilePath)}";
+                                    }
+                                }
+                                else
+                                {
+                                    // GetPlaybackPath returned null
+                                    FileNameDisplay.Text = $"Error: Cannot create playback file from cache for {System.IO.Path.GetFileName(currentImage.FilePath)}";
+                                }
+                            }
+                            else if (cacheFilePath != null)
+                            {
+                                // Cache path was calculated but file doesn't exist - try direct cache file playback
+                                FileNameDisplay.Text = $"Cache lookup: expected {System.IO.Path.GetFileName(cacheFilePath)} - not found, checking directory...";
+                                
+                                // List what cache files actually exist for this video
+                                try
+                                {
+                                    var cacheDir = System.IO.Path.Combine(
+                                        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                                        "DaisyView", "VideoCache");
+                                    
+                                    if (System.IO.Directory.Exists(cacheDir))
+                                    {
+                                        var baseFileName = System.IO.Path.GetFileNameWithoutExtension(currentImage.FilePath);
+                                        var cachedFiles = System.IO.Directory.GetFiles(cacheDir, $"{baseFileName}_*.daicache");
+                                        
+                                        if (cachedFiles.Length > 0)
+                                        {
+                                            // Found cache files! Use the first (most recent) one
+                                            var foundCacheFile = cachedFiles[0];
+                                            FileNameDisplay.Text = $"Using cache file: {System.IO.Path.GetFileName(foundCacheFile)}";
+                                            playbackPath = _videoConversionService.GetPlaybackPath(foundCacheFile);
+                                            if (!string.IsNullOrEmpty(playbackPath) && System.IO.File.Exists(playbackPath))
+                                            {
+                                                currentImage.ConvertedVideoPath = playbackPath;
+                                            }
+                                            else
+                                            {
+                                                FileNameDisplay.Text = $"Error: Failed to create playback file";
+                                                playbackPath = null;
+                                            }
+                                        }
+                                        else
+                                        {
+                                            FileNameDisplay.Text = $"Error: No cache files found in cache directory";
+                                        }
+                                    }
+                                    else
+                                    {
+                                        FileNameDisplay.Text = $"Error: Cache directory not found";
+                                    }
+                                }
+                                catch (Exception ex)
+                                {
+                                    FileNameDisplay.Text = $"Error scanning cache: {ex.Message}";
+                                }
+                            }
+                        }
+                        
+                        if (!string.IsNullOrEmpty(playbackPath) && System.IO.File.Exists(playbackPath))
+                        {
+                            // We have a valid playback path from cache
+                            PlayVideo(playbackPath);
+                        }
+                        else
+                        {
+                            // No cache or playback path available, start conversion
+                            DisplayVideoNotSupported(currentImage);
+                            _ = ConvertAndPlayVideoAsync(currentImage);
+                        }
                     }
                     else
                     {
-                        // No conversion service available, show thumbnail
-                        DisplayVideoNotSupported(currentImage);
+                        // For MP4, GIF - play directly without conversion
+                        PlayVideo(currentImage.FilePath);
                     }
                 }
                 else
                 {
-                    // Display image
+                    // Display static image
                     _videoLoopTimer?.Stop();
                     VideoDisplay.Stop();
                     VideoDisplay.Source = null;
@@ -160,16 +304,41 @@ public partial class SlideshowWindow : Window
         {
             try
             {
+                // Fully stop and clear the previous video
                 _videoLoopTimer?.Stop();
                 VideoDisplay.Stop();
-                VideoDisplay.Source = new Uri(System.IO.Path.GetFullPath(videoPath), UriKind.Absolute);
+                VideoDisplay.Source = null;
                 
+                // Ensure we have a valid file path
+                if (!System.IO.File.Exists(videoPath))
+                {
+                    FileNameDisplay.Text = $"Video file not found: {videoPath}";
+                    FileNameDisplay.Foreground = System.Windows.Media.Brushes.Yellow;
+                    return;
+                }
+
+                // Verify file size to ensure it's a valid file
+                var fileInfo = new System.IO.FileInfo(videoPath);
+                if (fileInfo.Length == 0)
+                {
+                    FileNameDisplay.Text = $"Error: Video file is empty";
+                    FileNameDisplay.Foreground = System.Windows.Media.Brushes.Yellow;
+                    return;
+                }
+
+                // Create proper file:// URI for MediaElement
+                var fullPath = System.IO.Path.GetFullPath(videoPath);
+                var fileUri = new Uri(fullPath, UriKind.Absolute);
+                
+                // Hide overlay before setting source
                 ImageDisplay.Visibility = Visibility.Collapsed;
                 VideoNotSupportedOverlay.Visibility = Visibility.Collapsed;
                 VideoDisplay.Visibility = Visibility.Visible;
                 
-                _videoLoopTimer?.Start();
-                VideoDisplay.Play();
+                // Set source - MediaElement will handle loading asynchronously
+                // The MediaOpened event will fire when the file is ready to play
+                VideoDisplay.Source = fileUri;
+                VideoDisplay.Volume = _audioEnabled ? 1.0 : 0.0;
             }
             catch (Exception ex)
             {
@@ -243,6 +412,9 @@ public partial class SlideshowWindow : Window
 
                 if (!string.IsNullOrEmpty(cachedFilePath) && System.IO.File.Exists(cachedFilePath))
                 {
+                    // Update the image object with the converted cache path for future use
+                    currentImage.ConvertedVideoPath = cachedFilePath;
+                    
                     // Get temporary playback path (creates temp .mp4 from .daicache if needed)
                     var playbackPath = _videoConversionService.GetPlaybackPath(cachedFilePath);
                     
@@ -251,9 +423,6 @@ public partial class SlideshowWindow : Window
                         Dispatcher.Invoke(() => DisplayVideoNotSupported(currentImage, VideoConversionStatus.Failed));
                         return;
                     }
-                    
-                    // Update the image object with the playback file path
-                    currentImage.ConvertedVideoPath = playbackPath;
                     
                     // Invoke on UI thread to update display
                     Dispatcher.Invoke(() => PlayVideo(playbackPath));
@@ -391,5 +560,32 @@ public partial class SlideshowWindow : Window
     public List<ImageFile> GetImages()
     {
         return _images;
+    }
+
+    /// <summary>
+    /// Handles mouse movement - shows cursor and resets hide timer
+    /// </summary>
+    private void SlideshowWindow_MouseMove(object sender, MouseEventArgs e)
+    {
+        // Show cursor if it was hidden
+        if (_isCursorHidden)
+        {
+            Mouse.OverrideCursor = null;
+            _isCursorHidden = false;
+        }
+
+        // Restart the hide timer
+        _cursorHideTimer?.Stop();
+        _cursorHideTimer?.Start();
+    }
+
+    /// <summary>
+    /// Handles cursor hide timer - hides cursor after 2 seconds of inactivity
+    /// </summary>
+    private void CursorHideTimer_Tick(object? sender, EventArgs e)
+    {
+        _cursorHideTimer?.Stop();
+        Mouse.OverrideCursor = Cursors.None;
+        _isCursorHidden = true;
     }
 }

@@ -27,7 +27,7 @@ public class ImageFile : INotifyPropertyChanged
     public required string FilePath { get; set; }
 
     /// <summary>
-    /// Whether this file is a video file (WebM, etc.)
+    /// Whether this file is a video file (WebM, MP4, AVI, MPEG, etc.)
     /// </summary>
     public bool IsVideo
     {

@@ -554,3 +554,50 @@ public class BoolToBrushConverter : System.Windows.Data.IValueConverter
         throw new NotImplementedException();
     }
 }
+
+/// <summary>
+/// Converts boolean audio enabled state to speaker icon
+/// </summary>
+public class AudioIconConverter : System.Windows.Data.IValueConverter
+{
+    public object Convert(object value, System.Type targetType, object parameter, System.Globalization.CultureInfo culture)
+    {
+        if (value is bool audioEnabled && audioEnabled)
+        {
+            return "🔊"; // Speaker icon
+        }
+        return "🔇"; // Muted speaker icon
+    }
+
+    public object ConvertBack(object value, System.Type targetType, object parameter, System.Globalization.CultureInfo culture)
+    {
+        throw new NotImplementedException();
+    }
+}
+
+/// <summary>
+/// Converts boolean audio enabled state to gold or grey color
+/// </summary>
+public class AudioColorConverter : System.Windows.Data.IMultiValueConverter
+{
+    public object Convert(object[] values, System.Type targetType, object parameter, System.Globalization.CultureInfo culture)
+    {
+        if (values.Length > 0 && values[0] is bool audioEnabled)
+        {
+            if (audioEnabled)
+            {
+                return new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(255, 215, 0)); // Gold
+            }
+            else
+            {
+                return new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(128, 128, 128)); // Grey
+            }
+        }
+        return new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(255, 255, 255)); // White
+    }
+
+    public object[] ConvertBack(object value, System.Type[] targetTypes, object parameter, System.Globalization.CultureInfo culture)
+    {
+        throw new NotImplementedException();
+    }
+}

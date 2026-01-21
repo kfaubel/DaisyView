@@ -16,7 +16,7 @@ public class FileSystemService
 {
     private readonly LoggingService _loggingService;
     private readonly Dictionary<string, FileSystemWatcher> _watchers = new();
-    private static readonly string[] ImageExtensions = { ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tif", ".tiff", ".webp", ".webm" };
+    private static readonly string[] ImageExtensions = { ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tif", ".tiff", ".webp", ".webm", ".mp4", ".avi", ".mpeg", ".mpg" };
 
     public event EventHandler<FileSystemEventArgs>? FileSystemChanged;
 
@@ -104,8 +104,22 @@ public class FileSystemService
                     IsActive = false
                 };
                 
-                // Add placeholder child so the expander shows
-                node.Children.Add(new TreeNode { Name = "Loading...", FullPath = "" });
+                // Only add placeholder if this folder has subdirectories
+                try
+                {
+                    var hasSubfolders = dir.GetDirectories()
+                        .Any(d => (d.Attributes & FileAttributes.Hidden) == 0);
+                    
+                    if (hasSubfolders)
+                    {
+                        node.Children.Add(new TreeNode { Name = "Loading...", FullPath = "" });
+                    }
+                }
+                catch
+                {
+                    // If we can't check for subfolders, add placeholder anyway to be safe
+                    node.Children.Add(new TreeNode { Name = "Loading...", FullPath = "" });
+                }
 
                 subfolders.Add(node);
             }
@@ -121,7 +135,7 @@ public class FileSystemService
     }
 
     /// <summary>
-    /// Gets image files in a folder (jpg, jpeg, png, gif, bmp, tif, tiff, webp, webm)
+    /// Gets image files in a folder (jpg, jpeg, png, gif, bmp, tif, tiff, webp, webm, mp4, avi, mpeg, mpg)
     /// </summary>
     public List<ImageFile> GetImageFiles(string folderPath)
     {
@@ -138,7 +152,11 @@ public class FileSystemService
 
             foreach (var file in files)
             {
-                var isVideo = string.Equals(file.Extension, ".webm", StringComparison.OrdinalIgnoreCase);
+                var isVideo = string.Equals(file.Extension, ".webm", StringComparison.OrdinalIgnoreCase) || 
+                             string.Equals(file.Extension, ".mp4", StringComparison.OrdinalIgnoreCase) ||
+                             string.Equals(file.Extension, ".avi", StringComparison.OrdinalIgnoreCase) ||
+                             string.Equals(file.Extension, ".mpeg", StringComparison.OrdinalIgnoreCase) ||
+                             string.Equals(file.Extension, ".mpg", StringComparison.OrdinalIgnoreCase);
                 images.Add(new ImageFile
                 {
                     FileName = file.Name,

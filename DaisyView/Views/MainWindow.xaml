@@ -13,6 +13,8 @@
         <local:BoolToRedBrushConverter x:Key="BoolToRedBrushConverter" />
         <local:ByteArrayToBitmapImageConverter x:Key="ByteArrayToBitmapImageConverter" />
         <local:BoolToBrushConverter x:Key="BoolToBrushConverter" />
+        <local:AudioIconConverter x:Key="AudioIconConverter" />
+        <local:AudioColorConverter x:Key="AudioColorConverter" />
         
         <!-- Size Button Style with box border -->
         <Style x:Key="SizeButtonStyle" TargetType="Button">
@@ -424,6 +426,22 @@
                     <TextBlock Text="★" FontSize="28" Foreground="{Binding RelativeSource={RelativeSource AncestorType={x:Type ToggleButton}}, Path=Foreground, Mode=OneWay}" />
                 </ToggleButton>
                 
+                <!-- Audio Toggle Button -->
+                <Button Width="40"
+                        Height="40"
+                        Margin="10,0,0,0"
+                        VerticalAlignment="Center"
+                        Style="{StaticResource IconButtonStyle}"
+                        ToolTip="Toggle audio in slideshow"
+                        Command="{Binding ToggleAudioCommand}">
+                    <Button.Foreground>
+                        <MultiBinding Converter="{StaticResource AudioColorConverter}">
+                            <Binding Path="AudioEnabled" />
+                        </MultiBinding>
+                    </Button.Foreground>
+                    <TextBlock Text="{Binding AudioEnabled, Converter={StaticResource AudioIconConverter}}" FontSize="20" />
+                </Button>
+
                 <!-- Slideshow Button -->
                 <Button Width="40"
                         Height="40"

@@ -31,7 +31,8 @@
                       Visibility="Collapsed"
                       LoadedBehavior="Manual"
                       UnloadedBehavior="Stop"
-                      ScrubbingEnabled="True" />
+                      ScrubbingEnabled="True"
+                      MediaOpened="VideoDisplay_MediaOpened" />
 
         <!-- Video Conversion/Not Supported Overlay -->
         <StackPanel x:Name="VideoNotSupportedOverlay"

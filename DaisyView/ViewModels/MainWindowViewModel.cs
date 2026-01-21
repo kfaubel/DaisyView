@@ -51,6 +51,7 @@ public class MainWindowViewModel : ViewModelBase
     private bool _isFavorite;
     private string _thumbnailSize = "Medium";
     private List<string> _favorites = new();
+    private bool _audioEnabled = true;
 
     // Commands
     private ICommand? _navigateToFolderCommand;
@@ -58,6 +59,7 @@ public class MainWindowViewModel : ViewModelBase
     private ICommand? _toggleRandomCommand;
     private ICommand? _markImageCommand;
     private ICommand? _openSlideshowCommand;
+    private ICommand? _toggleAudioCommand;
     private ICommand? _expandFolderCommand;
 
     public event EventHandler<FolderNavigationEventArgs>? FolderNavigated;
@@ -173,6 +175,12 @@ public class MainWindowViewModel : ViewModelBase
         set { _statusMessage = value; OnPropertyChanged(nameof(StatusMessage)); }
     }
 
+    public bool AudioEnabled
+    {
+        get => _audioEnabled;
+        set { _audioEnabled = value; OnPropertyChanged(nameof(AudioEnabled)); }
+    }
+
     public bool IsNavigating
     {
         get => _isNavigating;
@@ -185,6 +193,7 @@ public class MainWindowViewModel : ViewModelBase
     public ICommand ToggleRandomCommand => _toggleRandomCommand ??= new RelayCommand(_ => ToggleRandom(), _ => ActiveFolder != null && Images.Count > 0);
     public ICommand MarkImageCommand => _markImageCommand ??= new RelayCommand<ImageFile>(MarkImage, img => img != null);
     public ICommand OpenSlideshowCommand => _openSlideshowCommand ??= new RelayCommand(_ => OpenSlideshow(), _ => Images.Count > 0);
+    public ICommand ToggleAudioCommand => _toggleAudioCommand ??= new RelayCommand(_ => ToggleAudio());
     public ICommand ExpandFolderCommand => _expandFolderCommand ??= new RelayCommand<TreeNode>(ExpandFolder, node => node != null);
 
     public MainWindowViewModel()
@@ -372,6 +381,9 @@ public class MainWindowViewModel : ViewModelBase
                 _thumbnailService.GenerateThumbnailsAsync(images, visibleCount);
             }
 
+            // Start background conversion of WebM files to populate cache
+            _ = StartBackgroundVideoConversionAsync(images);
+
             // Fire navigation event
             FolderNavigated?.Invoke(this, new FolderNavigationEventArgs { FolderPath = folderPath });
             
@@ -536,6 +548,90 @@ public class MainWindowViewModel : ViewModelBase
     }
 
     /// <summary>
+    /// Starts background conversion of video files to MP4 to populate the cache
+    /// This runs asynchronously without blocking the UI
+    /// Only WebM files need conversion; MP4, AVI, MPEG, MPG play directly
+    /// </summary>
+    private async Task StartBackgroundVideoConversionAsync(List<ImageFile> images)
+    {
+        try
+        {
+            // Get only files that need conversion: WebM, AVI, MPEG, MPG
+            // (MP4 is already supported by MediaElement, so doesn't need conversion)
+            var filesToConvert = images.Where(img => img.IsVideo)
+                .Where(img =>
+                {
+                    var ext = System.IO.Path.GetExtension(img.FilePath).ToLower();
+                    return ext == ".webm" || ext == ".avi" || ext == ".mpeg" || ext == ".mpg";
+                })
+                .ToList();
+
+            if (filesToConvert.Count == 0)
+            {
+                _loggingService.LogTrace("No files found for background conversion");
+                StatusMessage = "Cache is up to date.";
+                return;
+            }
+
+            _loggingService.LogInfo("Starting background conversion of {FileCount} files", filesToConvert.Count);
+
+            int convertedCount = 0;
+
+            // Convert each file asynchronously
+            foreach (var file in filesToConvert)
+            {
+                try
+                {
+                    // Check if already converted
+                    var cacheFilePath = _videoConversionService.GetConvertedFilePath(file.FilePath);
+                    if (cacheFilePath != null && System.IO.File.Exists(cacheFilePath))
+                    {
+                        _loggingService.LogTrace("File already converted: {FilePath}", file.FileName);
+                        // Store the cache file path (.daicache) - slideshow will convert to playback path as needed
+                        file.ConvertedVideoPath = cacheFilePath;
+                        convertedCount++;
+                        StatusMessage = $"[{convertedCount}/{filesToConvert.Count} files cached]";
+                        continue;
+                    }
+
+                    // Convert the file and update the ImageFile with the converted cache path
+                    _loggingService.LogInfo("Converting file to MP4 in background: {FileName}", file.FileName);
+                    var convertedCachePath = await _videoConversionService.ConvertWebmToMp4Async(file.FilePath);
+                    
+                    if (!string.IsNullOrEmpty(convertedCachePath) && System.IO.File.Exists(convertedCachePath))
+                    {
+                        // Store the cache file path (.daicache) - slideshow will convert to playback path as needed
+                        file.ConvertedVideoPath = convertedCachePath;
+                        convertedCount++;
+                        _loggingService.LogInfo("Background conversion completed: {FileName} -> {CachePath}", file.FileName, convertedCachePath);
+                    }
+                    else
+                    {
+                        _loggingService.LogWarning("Background conversion failed: {FileName}", file.FileName);
+                    }
+
+                    // Update status message
+                    StatusMessage = $"[{convertedCount}/{filesToConvert.Count} files cached]";
+                }
+                catch (Exception ex)
+                {
+                    _loggingService.LogError("Error during background conversion of {FileName}", ex, file.FileName);
+                }
+            }
+
+            _loggingService.LogInfo("Background conversion completed for {FileCount} files", filesToConvert.Count);
+            
+            // Show final cache status message
+            StatusMessage = "Cache is up to date.";
+        }
+        catch (Exception ex)
+        {
+            _loggingService.LogError("StartBackgroundVideoConversionAsync error", ex);
+            StatusMessage = "Cache update failed.";
+        }
+    }
+
+    /// <summary>
     /// Toggles the favorite status of the active folder
     /// </summary>
     public void ToggleFavorite()
@@ -644,6 +740,22 @@ public class MainWindowViewModel : ViewModelBase
     }
 
     /// <summary>
+    /// Toggles audio playback during slideshow mode
+    /// </summary>
+    public void ToggleAudio()
+    {
+        try
+        {
+            AudioEnabled = !AudioEnabled;
+            _loggingService.LogUserAction("Toggle audio", $"Audio is now: {(AudioEnabled ? "enabled" : "disabled")}");
+        }
+        catch (Exception ex)
+        {
+            _loggingService.LogError("Failed to toggle audio", ex);
+        }
+    }
+
+    /// <summary>
     /// Reorders images based on a provided list of file names
     /// </summary>
     private void ReorderImagesRandomly(List<string> fileNameOrder)
@@ -741,7 +853,7 @@ public class MainWindowViewModel : ViewModelBase
         try
         {
             var currentIndex = ActiveImage != null ? Images.IndexOf(ActiveImage) : 0;
-            var slideshowWindow = new Views.SlideshowWindow(Images.ToList(), currentIndex, _videoConversionService);
+            var slideshowWindow = new Views.SlideshowWindow(Images.ToList(), currentIndex, _videoConversionService, AudioEnabled);
             slideshowWindow.ShowDialog();
 
             // Update image states after slideshow closes

@@ -61,8 +61,8 @@ public class VideoConversionService
         try
         {
             var fileInfo = new FileInfo(webmFilePath);
-            // Use .daicache extension to avoid leaving .mp4 files on disk
-            var cacheFileName = $"{Path.GetFileNameWithoutExtension(webmFilePath)}_{fileInfo.Length}_{fileInfo.LastWriteTimeUtc:yyyyMMddHHmmss}.daicache";
+            // Use .mp4 extension for cached files - MediaElement can play these directly
+            var cacheFileName = $"{Path.GetFileNameWithoutExtension(webmFilePath)}_{fileInfo.Length}_{fileInfo.LastWriteTimeUtc:yyyyMMddHHmmss}.mp4";
             var cachedFilePath = Path.Combine(_cacheDirectory, cacheFileName);
 
             // Return cached file if it exists
@@ -70,6 +70,35 @@ public class VideoConversionService
             {
                 _loggingService.LogInfo("Using cached conversion for WebM: {WebmFile}", webmFilePath);
                 return cachedFilePath;
+            }
+
+            // Check for old .daicache file and migrate it to .mp4 if found
+            var oldCacheFileName = $"{Path.GetFileNameWithoutExtension(webmFilePath)}_{fileInfo.Length}_{fileInfo.LastWriteTimeUtc:yyyyMMddHHmmss}.daicache";
+            var oldCachedFilePath = Path.Combine(_cacheDirectory, oldCacheFileName);
+            
+            if (File.Exists(oldCachedFilePath))
+            {
+                try
+                {
+                    // Migrate old .daicache file to .mp4 by copying, then delete original
+                    File.Copy(oldCachedFilePath, cachedFilePath, overwrite: true);
+                    try
+                    {
+                        File.Delete(oldCachedFilePath);
+                    }
+                    catch
+                    {
+                        // If delete fails, that's okay - we have the .mp4 copy
+                    }
+                    _loggingService.LogInfo("Migrated cache file from .daicache to .mp4: {WebmFile}", webmFilePath);
+                    return cachedFilePath;
+                }
+                catch (Exception ex)
+                {
+                    _loggingService.LogWarning("Failed to migrate cache file: {File}", ex, oldCacheFileName);
+                    // If migration fails, try to use the old file anyway
+                    return oldCachedFilePath;
+                }
             }
 
             // Clean up old cache files for this WebM (keep only the latest)
@@ -92,23 +121,21 @@ public class VideoConversionService
     public string? GetPlaybackPath(string cachedFilePath)
     {
         if (!File.Exists(cachedFilePath))
+        {
+            _loggingService.LogWarning("Cache file does not exist: {CachedFile}", cachedFilePath);
             return null;
+        }
 
         try
         {
-            // Create a temporary .mp4 file for playback
-            var tempFileName = $"{Path.GetFileNameWithoutExtension(cachedFilePath)}_temp.mp4";
-            var tempPlaybackPath = Path.Combine(Path.GetTempPath(), tempFileName);
-
-            // Copy the cached file to temp with .mp4 extension for playback
-            File.Copy(cachedFilePath, tempPlaybackPath, overwrite: true);
-            _loggingService.LogInfo("Created temporary playback file: {TempFile}", tempPlaybackPath);
-
-            return tempPlaybackPath;
+            // Cache files are already .mp4, so we can play them directly
+            var fileSize = new FileInfo(cachedFilePath).Length;
+            _loggingService.LogInfo("Using cache file for playback: {CacheFile}, Size: {Size} bytes", cachedFilePath, fileSize);
+            return cachedFilePath;
         }
         catch (Exception ex)
         {
-            _loggingService.LogError("Error creating playback path from cache", ex);
+            _loggingService.LogError("Error getting playback path from cache", ex);
             return null;
         }
     }
