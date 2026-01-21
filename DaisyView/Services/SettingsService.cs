@@ -179,4 +179,57 @@ public class SettingsService
     {
         return _settingsFilePath;
     }
+
+    /// <summary>
+    /// Saves the window size and position
+    /// </summary>
+    public void SaveWindowPlacement(double width, double height, double left, double top, string windowState)
+    {
+        _currentSettings.WindowWidth = width;
+        _currentSettings.WindowHeight = height;
+        _currentSettings.WindowLeft = left;
+        _currentSettings.WindowTop = top;
+        _currentSettings.WindowState = windowState;
+        SaveSettings();
+    }
+
+    /// <summary>
+    /// Gets the saved window width
+    /// </summary>
+    public double GetWindowWidth()
+    {
+        return _currentSettings.WindowWidth;
+    }
+
+    /// <summary>
+    /// Gets the saved window height
+    /// </summary>
+    public double GetWindowHeight()
+    {
+        return _currentSettings.WindowHeight;
+    }
+
+    /// <summary>
+    /// Gets the saved window left position
+    /// </summary>
+    public double GetWindowLeft()
+    {
+        return _currentSettings.WindowLeft;
+    }
+
+    /// <summary>
+    /// Gets the saved window top position
+    /// </summary>
+    public double GetWindowTop()
+    {
+        return _currentSettings.WindowTop;
+    }
+
+    /// <summary>
+    /// Gets the saved window state
+    /// </summary>
+    public string GetWindowState()
+    {
+        return _currentSettings.WindowState;
+    }
 }

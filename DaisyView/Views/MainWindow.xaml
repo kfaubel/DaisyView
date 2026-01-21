@@ -6,8 +6,7 @@
         Height="800" 
         Width="1200"
         Background="{StaticResource BackgroundBrush}"
-        Foreground="{StaticResource ForegroundBrush}"
-        WindowStartupLocation="CenterScreen">
+        Foreground="{StaticResource ForegroundBrush}">
     
     <Window.Resources>
         <local:BoolToRedBrushConverter x:Key="BoolToRedBrushConverter" />
@@ -139,9 +138,9 @@
         <!-- LEFT PANEL: File System Tree View and Favorites -->
         <Grid Grid.Column="0" Background="{StaticResource PanelBrush}">
             <Grid.RowDefinitions>
-                <RowDefinition Height="*" />
-                <RowDefinition Height="Auto" />
-                <RowDefinition Height="150" />
+                <RowDefinition Height="*" MinHeight="100" />
+                <RowDefinition Height="5" />
+                <RowDefinition Height="150" MinHeight="50" />
             </Grid.RowDefinitions>
 
             <!-- Tree View -->
@@ -230,20 +229,36 @@
                 </TreeView.ItemTemplate>
             </TreeView>
 
-            <!-- Favorites Label -->
-            <TextBlock Grid.Row="1" 
-                       Text="Favorites" 
-                       Padding="10,5"
-                       FontWeight="Bold"
-                       Foreground="{StaticResource ForegroundBrush}" />
+            <!-- Splitter between Tree View and Favorites -->
+            <GridSplitter Grid.Row="1" 
+                          Height="5"
+                          HorizontalAlignment="Stretch" 
+                          VerticalAlignment="Center"
+                          Background="{StaticResource BorderBrush}"
+                          ShowsPreview="True" />
 
-            <!-- Favorites List -->
-            <ListBox Grid.Row="2" 
-                     ItemsSource="{Binding Favorites}"
-                     Background="{StaticResource BackgroundBrush}"
-                     Foreground="{StaticResource ForegroundBrush}"
-                     BorderBrush="{StaticResource BorderBrush}"
-                     SelectionChanged="FavoriteFolder_SelectionChanged" />
+            <!-- Favorites Container -->
+            <Grid Grid.Row="2">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+
+                <!-- Favorites Label -->
+                <TextBlock Grid.Row="0"
+                           Text="Favorites" 
+                           Padding="10,5"
+                           FontWeight="Bold"
+                           Foreground="{StaticResource ForegroundBrush}" />
+
+                <!-- Favorites List -->
+                <ListBox Grid.Row="1"
+                         ItemsSource="{Binding Favorites}"
+                         Background="{StaticResource BackgroundBrush}"
+                         Foreground="{StaticResource ForegroundBrush}"
+                         BorderBrush="{StaticResource BorderBrush}"
+                         SelectionChanged="FavoriteFolder_SelectionChanged" />
+            </Grid>
         </Grid>
 
         <!-- SPLITTER -->

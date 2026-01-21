@@ -24,6 +24,7 @@ public partial class SlideshowWindow : Window
         private VideoConversionService? _videoConversionService;
         private bool _isCursorHidden = false;
         private bool _audioEnabled = true;
+        private Point _lastMousePosition = new();
 
         public SlideshowWindow(List<ImageFile> images, int activeImageIndex = 0, VideoConversionService? videoConversionService = null, bool audioEnabled = true)
         {
@@ -567,6 +568,13 @@ public partial class SlideshowWindow : Window
     /// </summary>
     private void SlideshowWindow_MouseMove(object sender, MouseEventArgs e)
     {
+        // Only respond to actual mouse movement, not UI focus events
+        Point currentPosition = e.GetPosition(this);
+        if (currentPosition == _lastMousePosition)
+            return;
+
+        _lastMousePosition = currentPosition;
+
         // Show cursor if it was hidden
         if (_isCursorHidden)
         {

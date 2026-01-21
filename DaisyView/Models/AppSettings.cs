@@ -53,4 +53,29 @@ public class AppSettings
     /// Maximum age of cache files in hours (default: 30 days = 720 hours)
     /// </summary>
     public long VideoCacheMaxAgeHours { get; set; } = 720; // 30 days
+
+    /// <summary>
+    /// Last window width in pixels
+    /// </summary>
+    public double WindowWidth { get; set; } = 1200;
+
+    /// <summary>
+    /// Last window height in pixels
+    /// </summary>
+    public double WindowHeight { get; set; } = 800;
+
+    /// <summary>
+    /// Last window left position (X coordinate)
+    /// </summary>
+    public double WindowLeft { get; set; } = 0;
+
+    /// <summary>
+    /// Last window top position (Y coordinate)
+    /// </summary>
+    public double WindowTop { get; set; } = 0;
+
+    /// <summary>
+    /// Window state: Normal, Maximized, or Minimized
+    /// </summary>
+    public string WindowState { get; set; } = "Normal";
 }

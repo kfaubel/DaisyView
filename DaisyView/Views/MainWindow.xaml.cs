@@ -17,22 +17,87 @@ namespace DaisyView.Views;
 public partial class MainWindow : Window
 {
     private MainWindowViewModel? _viewModel;
+    private SettingsService? _settingsService;
 
     public MainWindow()
     {
         InitializeComponent();
         
         _viewModel = new MainWindowViewModel();
+        _settingsService = new SettingsService();
         DataContext = _viewModel;
 
-        // Handle window closing to clean up resources
+        // Restore window size and position from settings
+        RestoreWindowPlacement();
+
+        // Handle window closing to clean up resources and save placement
         Closing += (s, e) =>
         {
+            // Save window placement before closing
+            if (_settingsService != null)
+            {
+                _settingsService.SaveWindowPlacement(
+                    this.Width,
+                    this.Height,
+                    this.Left,
+                    this.Top,
+                    this.WindowState.ToString());
+            }
             _viewModel?.Dispose();
         };
 
         // Wire up events
         Loaded += MainWindow_Loaded;
+    }
+
+    /// <summary>
+    /// Restores window size and position from saved settings
+    /// </summary>
+    private void RestoreWindowPlacement()
+    {
+        if (_settingsService == null)
+            return;
+
+        try
+        {
+            var width = _settingsService.GetWindowWidth();
+            var height = _settingsService.GetWindowHeight();
+            var left = _settingsService.GetWindowLeft();
+            var top = _settingsService.GetWindowTop();
+            var windowState = _settingsService.GetWindowState();
+
+            // Restore window size if valid
+            if (width > 0 && height > 0)
+            {
+                this.Width = width;
+                this.Height = height;
+            }
+
+            // Restore window position only if it's reasonable
+            // (positive coordinates suggest a valid saved position, not defaults)
+            if (left >= 0 && top >= 0 && width > 100 && height > 100)
+            {
+                this.Left = left;
+                this.Top = top;
+            }
+            else
+            {
+                // If no valid saved position, center the window
+                this.WindowStartupLocation = WindowStartupLocation.CenterScreen;
+            }
+
+            // Restore window state (Normal, Maximized, or Minimized)
+            if (Enum.TryParse<WindowState>(windowState, out var state))
+            {
+                this.WindowState = state;
+            }
+        }
+        catch (Exception ex)
+        {
+            // If anything goes wrong, just use defaults
+            System.Diagnostics.Debug.WriteLine($"Error restoring window placement: {ex.Message}");
+            this.WindowStartupLocation = WindowStartupLocation.CenterScreen;
+        }
     }
 
     private void MainWindow_Loaded(object sender, RoutedEventArgs e)
