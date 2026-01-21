@@ -4,6 +4,8 @@ on:
   push:
     tags: ['v*']
 
+# This release script uses an Automatic token (GITHUB_TOKEN).  The following section adds the
+# required write permission to the contents section.  We don't need to create our own token.
 permissions:
   contents: write
   
