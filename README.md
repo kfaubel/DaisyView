@@ -191,13 +191,8 @@ git push origin main
 
 #### 4. Create and Push Git Tag
 ```bash
-# Create annotated tag (recommended)
-git tag -a v1.0.0 -m "Release version 1.0.0
-
-- Initial release of DaisyView
-- Image viewer with slideshow support
-- WebM video playback support
-- File system navigation with thumbnails"
+# Create tag
+git tag v1.0.0
 
 # Push tag to GitHub
 git push origin v1.0.0
