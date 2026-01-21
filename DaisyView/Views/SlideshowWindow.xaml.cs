@@ -286,11 +286,12 @@ public partial class SlideshowWindow : Window
         }
 
         /// <summary>
-        /// Updates the file name display with appropriate color
+        /// Updates the file name display with position and appropriate color
         /// </summary>
         private void UpdateFileNameDisplay(ImageFile currentImage)
         {
-            FileNameDisplay.Text = currentImage.FileName;
+            var position = $"[{_currentImageIndex + 1}/{_images.Count}] ";
+            FileNameDisplay.Text = position + currentImage.FileName;
             FileNameDisplay.Foreground = currentImage.IsMarked
                 ? System.Windows.Media.Brushes.Red
                 : System.Windows.Media.Brushes.White;

@@ -15,6 +15,7 @@
         <converters:BoolToBrushConverter x:Key="BoolToBrushConverter" />
         <converters:AudioIconConverter x:Key="AudioIconConverter" />
         <converters:AudioColorConverter x:Key="AudioColorConverter" />
+        <converters:IntToVisibilityConverter x:Key="IntToVisibilityConverter" />
         
         <!-- Size Button Style with box border -->
         <Style x:Key="SizeButtonStyle" TargetType="Button">
@@ -529,10 +530,17 @@
                     Padding="10,5"
                     BorderThickness="0,1,0,0"
                     BorderBrush="{StaticResource BorderBrush}">
-                <TextBlock Text="{Binding Images.Count, StringFormat='Showing {0} thumbnail(s)'}"
-                           Foreground="{StaticResource ForegroundBrush}"
-                           FontSize="11"
-                           VerticalAlignment="Center" />
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="{Binding Images.Count, StringFormat='Showing {0} thumbnail(s)'}"
+                               Foreground="{StaticResource ForegroundBrush}"
+                               FontSize="11"
+                               VerticalAlignment="Center" />
+                    <TextBlock Text="{Binding MarkedCount, StringFormat=' ({0} selected)'}"
+                               Foreground="{StaticResource ForegroundBrush}"
+                               FontSize="11"
+                               VerticalAlignment="Center"
+                               Visibility="{Binding MarkedCount, Converter={StaticResource IntToVisibilityConverter}}" />
+                </StackPanel>
             </Border>
         </Grid>
     </Grid>

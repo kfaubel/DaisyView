@@ -106,8 +106,14 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
         if (e.PropertyName == nameof(ImageFile.IsMarked))
         {
             OnPropertyChanged(nameof(MoveButtonEnabled));
+            OnPropertyChanged(nameof(MarkedCount));
         }
     }
+
+    /// <summary>
+    /// Gets the count of marked/selected images
+    /// </summary>
+    public int MarkedCount => Images.Count(i => i.IsMarked);
 
     public ImageFile? ActiveImage
     {
