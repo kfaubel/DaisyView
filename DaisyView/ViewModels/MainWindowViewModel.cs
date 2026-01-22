@@ -279,12 +279,19 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
     }
 
     /// <summary>
-    /// Loads favorite folders from settings
+    /// Loads favorite folders from settings, removing any that no longer exist
     /// </summary>
     private void LoadFavorites()
     {
         try
         {
+            // Clean up any favorites that no longer exist on startup
+            var removedCount = _settingsService.CleanupInvalidFavorites();
+            if (removedCount > 0)
+            {
+                _loggingService.LogInfo("Removed {Count} invalid favorite folder(s) that no longer exist", removedCount);
+            }
+            
             Favorites = new List<string>(_settingsService.GetFavoriteFolders());
         }
         catch (Exception ex)

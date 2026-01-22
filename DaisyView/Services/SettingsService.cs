@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text.Json;
 using DaisyView.Models;
 
@@ -145,6 +146,28 @@ public class SettingsService
     public List<string> GetFavoriteFolders()
     {
         return _currentSettings.FavoriteFolders;
+    }
+
+    /// <summary>
+    /// Removes any favorite folders that no longer exist on the filesystem
+    /// </summary>
+    /// <returns>Number of favorites removed</returns>
+    public int CleanupInvalidFavorites()
+    {
+        var invalidFavorites = _currentSettings.FavoriteFolders
+            .Where(path => !Directory.Exists(path))
+            .ToList();
+
+        if (invalidFavorites.Count > 0)
+        {
+            foreach (var path in invalidFavorites)
+            {
+                _currentSettings.FavoriteFolders.Remove(path);
+            }
+            SaveSettings();
+        }
+
+        return invalidFavorites.Count;
     }
 
     /// <summary>

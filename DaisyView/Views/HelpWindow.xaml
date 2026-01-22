@@ -114,6 +114,14 @@
                         <TextBlock Text="Move marked images to recycle bin" TextWrapping="Wrap" Foreground="#666666" FontSize="11" Margin="20,0,0,0" />
                     </StackPanel>
 
+                    <!-- Invert Selection Button -->
+                    <StackPanel Margin="0,0,0,12">
+                        <TextBlock FontSize="12" FontWeight="Bold" Foreground="#333333" Margin="0,0,0,4">
+                            <Run>🔄 Invert Selection</Run>
+                        </TextBlock>
+                        <TextBlock Text="Toggle all checkmarks: marked images become unmarked and vice versa" TextWrapping="Wrap" Foreground="#666666" FontSize="11" Margin="20,0,0,0" />
+                    </StackPanel>
+
                     <!-- Random Toggle -->
                     <StackPanel Margin="0,0,0,12">
                         <TextBlock FontSize="12" FontWeight="Bold" Foreground="#333333" Margin="0,0,0,4">
@@ -177,25 +185,29 @@
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
                         </Grid.RowDefinitions>
 
-                        <TextBlock Grid.Row="0" Grid.Column="0" FontSize="11" FontWeight="Bold" Foreground="#333333" Margin="0,0,0,4">Ctrl+C</TextBlock>
-                        <TextBlock Grid.Row="0" Grid.Column="1" FontSize="11" Foreground="#666666" Margin="0,0,0,4">Copy marked images</TextBlock>
+                        <TextBlock Grid.Row="0" Grid.Column="0" FontSize="11" FontWeight="Bold" Foreground="#333333" Margin="0,0,0,4">Ctrl+A</TextBlock>
+                        <TextBlock Grid.Row="0" Grid.Column="1" FontSize="11" Foreground="#666666" Margin="0,0,0,4">Select all images (mark all)</TextBlock>
 
-                        <TextBlock Grid.Row="1" Grid.Column="0" FontSize="11" FontWeight="Bold" Foreground="#333333" Margin="0,0,0,4">Ctrl+X</TextBlock>
-                        <TextBlock Grid.Row="1" Grid.Column="1" FontSize="11" Foreground="#666666" Margin="0,0,0,4">Cut marked images</TextBlock>
+                        <TextBlock Grid.Row="1" Grid.Column="0" FontSize="11" FontWeight="Bold" Foreground="#333333" Margin="0,0,0,4">Ctrl+C</TextBlock>
+                        <TextBlock Grid.Row="1" Grid.Column="1" FontSize="11" Foreground="#666666" Margin="0,0,0,4">Copy marked images</TextBlock>
 
-                        <TextBlock Grid.Row="2" Grid.Column="0" FontSize="11" FontWeight="Bold" Foreground="#333333" Margin="0,0,0,4">Ctrl+V</TextBlock>
-                        <TextBlock Grid.Row="2" Grid.Column="1" FontSize="11" Foreground="#666666" Margin="0,0,0,4">Paste images</TextBlock>
+                        <TextBlock Grid.Row="2" Grid.Column="0" FontSize="11" FontWeight="Bold" Foreground="#333333" Margin="0,0,0,4">Ctrl+X</TextBlock>
+                        <TextBlock Grid.Row="2" Grid.Column="1" FontSize="11" Foreground="#666666" Margin="0,0,0,4">Cut marked images</TextBlock>
 
-                        <TextBlock Grid.Row="3" Grid.Column="0" FontSize="11" FontWeight="Bold" Foreground="#333333" Margin="0,0,0,4">Delete</TextBlock>
-                        <TextBlock Grid.Row="3" Grid.Column="1" FontSize="11" Foreground="#666666" Margin="0,0,0,4">Delete marked images</TextBlock>
+                        <TextBlock Grid.Row="3" Grid.Column="0" FontSize="11" FontWeight="Bold" Foreground="#333333" Margin="0,0,0,4">Ctrl+V</TextBlock>
+                        <TextBlock Grid.Row="3" Grid.Column="1" FontSize="11" Foreground="#666666" Margin="0,0,0,4">Paste images</TextBlock>
 
-                        <TextBlock Grid.Row="4" Grid.Column="0" FontSize="11" FontWeight="Bold" Foreground="#333333" Margin="0,0,0,4">Space</TextBlock>
-                        <TextBlock Grid.Row="4" Grid.Column="1" FontSize="11" Foreground="#666666" Margin="0,0,0,4">Mark/unmark current image</TextBlock>
+                        <TextBlock Grid.Row="4" Grid.Column="0" FontSize="11" FontWeight="Bold" Foreground="#333333" Margin="0,0,0,4">Delete</TextBlock>
+                        <TextBlock Grid.Row="4" Grid.Column="1" FontSize="11" Foreground="#666666" Margin="0,0,0,4">Delete marked images</TextBlock>
 
-                        <TextBlock Grid.Row="5" Grid.Column="0" FontSize="11" FontWeight="Bold" Foreground="#333333">F11</TextBlock>
-                        <TextBlock Grid.Row="5" Grid.Column="1" FontSize="11" Foreground="#666666">Toggle fullscreen mode</TextBlock>
+                        <TextBlock Grid.Row="5" Grid.Column="0" FontSize="11" FontWeight="Bold" Foreground="#333333" Margin="0,0,0,4">Space</TextBlock>
+                        <TextBlock Grid.Row="5" Grid.Column="1" FontSize="11" Foreground="#666666" Margin="0,0,0,4">Mark/unmark current image</TextBlock>
+
+                        <TextBlock Grid.Row="6" Grid.Column="0" FontSize="11" FontWeight="Bold" Foreground="#333333">F11</TextBlock>
+                        <TextBlock Grid.Row="6" Grid.Column="1" FontSize="11" Foreground="#666666">Toggle fullscreen mode</TextBlock>
                     </Grid>
 
                     <TextBlock Text="Slideshow Mode Shortcuts" FontSize="14" FontWeight="Bold" Foreground="#555555" Margin="0,12,0,8" />
@@ -209,7 +221,6 @@
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
-                            <RowDefinition Height="Auto" />
                         </Grid.RowDefinitions>
 
                         <TextBlock Grid.Row="0" Grid.Column="0" FontSize="11" FontWeight="Bold" Foreground="#333333" Margin="0,0,0,4">Right Arrow</TextBlock>
@@ -219,14 +230,50 @@
                         <TextBlock Grid.Row="1" Grid.Column="1" FontSize="11" Foreground="#666666" Margin="0,0,0,4">Previous image</TextBlock>
 
                         <TextBlock Grid.Row="2" Grid.Column="0" FontSize="11" FontWeight="Bold" Foreground="#333333" Margin="0,0,0,4">Space</TextBlock>
-                        <TextBlock Grid.Row="2" Grid.Column="1" FontSize="11" Foreground="#666666" Margin="0,0,0,4">Play/pause slideshow</TextBlock>
+                        <TextBlock Grid.Row="2" Grid.Column="1" FontSize="11" Foreground="#666666" Margin="0,0,0,4">Mark/unmark current image</TextBlock>
 
-                        <TextBlock Grid.Row="3" Grid.Column="0" FontSize="11" FontWeight="Bold" Foreground="#333333" Margin="0,0,0,4">Escape / F11</TextBlock>
-                        <TextBlock Grid.Row="3" Grid.Column="1" FontSize="11" Foreground="#666666" Margin="0,0,0,4">Exit fullscreen</TextBlock>
-
-                        <TextBlock Grid.Row="4" Grid.Column="0" FontSize="11" FontWeight="Bold" Foreground="#333333">F</TextBlock>
-                        <TextBlock Grid.Row="4" Grid.Column="1" FontSize="11" Foreground="#666666">Fit to window</TextBlock>
+                        <TextBlock Grid.Row="3" Grid.Column="0" FontSize="11" FontWeight="Bold" Foreground="#333333">Escape / F11</TextBlock>
+                        <TextBlock Grid.Row="3" Grid.Column="1" FontSize="11" Foreground="#666666">Exit slideshow</TextBlock>
                     </Grid>
+                </StackPanel>
+            </Border>
+
+            <!-- Folder Shortcuts Section -->
+            <Border BorderBrush="#CCCCCC" BorderThickness="1" CornerRadius="8" Background="White" Padding="20" Margin="0,0,0,20">
+                <StackPanel>
+                    <TextBlock Text="Folder Shortcuts (Virtual Folders)" FontSize="18" FontWeight="Bold" Foreground="#333333" Margin="0,0,0,12" />
+                    
+                    <TextBlock TextWrapping="Wrap" Foreground="#555555" Margin="0,0,0,12">
+                        <Run>DaisyView can include images from linked folders by reading Windows shortcuts (.lnk files). This allows you to create virtual collections without moving or copying files.</Run>
+                    </TextBlock>
+
+                    <TextBlock Text="How It Works" FontSize="14" FontWeight="Bold" Foreground="#555555" Margin="0,0,0,8" />
+                    <TextBlock TextWrapping="Wrap" Foreground="#666666" Margin="20,0,0,8">
+                        <Run>• When you open a folder, DaisyView scans for .lnk shortcut files</Run>
+                    </TextBlock>
+                    <TextBlock TextWrapping="Wrap" Foreground="#666666" Margin="20,0,0,8">
+                        <Run>• If a shortcut points to another folder containing images, those images appear in the current view</Run>
+                    </TextBlock>
+                    <TextBlock TextWrapping="Wrap" Foreground="#666666" Margin="20,0,0,8">
+                        <Run>• Linked images display with a prefix: [ShortcutName] filename.jpg</Run>
+                    </TextBlock>
+                    <TextBlock TextWrapping="Wrap" Foreground="#666666" Margin="20,0,0,12">
+                        <Run>• Copy works normally, but Cut and Delete are disabled for linked images (to protect the originals)</Run>
+                    </TextBlock>
+
+                    <TextBlock Text="Creating a Folder Shortcut" FontSize="14" FontWeight="Bold" Foreground="#555555" Margin="0,12,0,8" />
+                    <TextBlock TextWrapping="Wrap" Foreground="#666666" Margin="20,0,0,8">
+                        <Run>1. In Windows Explorer, navigate to the folder you want to link</Run>
+                    </TextBlock>
+                    <TextBlock TextWrapping="Wrap" Foreground="#666666" Margin="20,0,0,8">
+                        <Run>2. Right-click the folder and select "Create shortcut"</Run>
+                    </TextBlock>
+                    <TextBlock TextWrapping="Wrap" Foreground="#666666" Margin="20,0,0,8">
+                        <Run>3. Move the created .lnk file to your working folder</Run>
+                    </TextBlock>
+                    <TextBlock TextWrapping="Wrap" Foreground="#666666" Margin="20,0,0,8">
+                        <Run>4. Rename the shortcut to describe the collection (the name appears as the prefix)</Run>
+                    </TextBlock>
                 </StackPanel>
             </Border>
 
