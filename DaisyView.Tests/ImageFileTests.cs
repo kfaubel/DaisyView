@@ -291,4 +291,182 @@ public class ImageFileTests
     }
 
     #endregion
+
+    #region IsFromShortcut and ShortcutName Property Tests
+
+    [Fact]
+    public void ImageFile_IsFromShortcut_DefaultIsFalse()
+    {
+        // Arrange & Act
+        var file = new ImageFile { FileName = "test.jpg", FilePath = "C:\\test.jpg" };
+
+        // Assert
+        Assert.False(file.IsFromShortcut);
+    }
+
+    [Fact]
+    public void ImageFile_IsFromShortcut_CanBeSet()
+    {
+        // Arrange
+        var file = new ImageFile { FileName = "test.jpg", FilePath = "C:\\linked\\test.jpg" };
+
+        // Act
+        file.IsFromShortcut = true;
+
+        // Assert
+        Assert.True(file.IsFromShortcut);
+    }
+
+    [Fact]
+    public void ImageFile_IsFromShortcut_RaisesPropertyChanged()
+    {
+        // Arrange
+        var file = new ImageFile { FileName = "test.jpg", FilePath = "C:\\test.jpg" };
+        var propertyChangedRaised = false;
+        file.PropertyChanged += (s, e) =>
+        {
+            if (e.PropertyName == nameof(ImageFile.IsFromShortcut))
+                propertyChangedRaised = true;
+        };
+
+        // Act
+        file.IsFromShortcut = true;
+
+        // Assert
+        Assert.True(propertyChangedRaised);
+    }
+
+    [Fact]
+    public void ImageFile_ShortcutName_CanBeSet()
+    {
+        // Arrange
+        var file = new ImageFile { FileName = "test.jpg", FilePath = "C:\\linked\\test.jpg" };
+
+        // Act
+        file.ShortcutName = "MyShortcut";
+
+        // Assert
+        Assert.Equal("MyShortcut", file.ShortcutName);
+    }
+
+    [Fact]
+    public void ImageFile_ShortcutName_RaisesPropertyChanged()
+    {
+        // Arrange
+        var file = new ImageFile { FileName = "test.jpg", FilePath = "C:\\test.jpg" };
+        var propertyChangedRaised = false;
+        file.PropertyChanged += (s, e) =>
+        {
+            if (e.PropertyName == nameof(ImageFile.ShortcutName))
+                propertyChangedRaised = true;
+        };
+
+        // Act
+        file.ShortcutName = "Pictures";
+
+        // Assert
+        Assert.True(propertyChangedRaised);
+    }
+
+    #endregion
+
+    #region DisplayName Property Tests
+
+    [Fact]
+    public void ImageFile_DisplayName_ReturnsFileName_WhenNotFromShortcut()
+    {
+        // Arrange
+        var file = new ImageFile { FileName = "test.jpg", FilePath = "C:\\test.jpg" };
+
+        // Assert
+        Assert.Equal("test.jpg", file.DisplayName);
+    }
+
+    [Fact]
+    public void ImageFile_DisplayName_IncludesShortcutPrefix_WhenFromShortcut()
+    {
+        // Arrange
+        var file = new ImageFile 
+        { 
+            FileName = "test.jpg", 
+            FilePath = "C:\\linked\\test.jpg",
+            IsFromShortcut = true,
+            ShortcutName = "MyPhotos"
+        };
+
+        // Assert
+        Assert.Equal("[MyPhotos] test.jpg", file.DisplayName);
+    }
+
+    [Fact]
+    public void ImageFile_DisplayName_ReturnsFileName_WhenFromShortcut_ButNoShortcutName()
+    {
+        // Arrange
+        var file = new ImageFile 
+        { 
+            FileName = "test.jpg", 
+            FilePath = "C:\\linked\\test.jpg",
+            IsFromShortcut = true,
+            ShortcutName = null
+        };
+
+        // Assert
+        Assert.Equal("test.jpg", file.DisplayName);
+    }
+
+    [Fact]
+    public void ImageFile_DisplayName_ReturnsFileName_WhenFromShortcut_ButEmptyShortcutName()
+    {
+        // Arrange
+        var file = new ImageFile 
+        { 
+            FileName = "test.jpg", 
+            FilePath = "C:\\linked\\test.jpg",
+            IsFromShortcut = true,
+            ShortcutName = ""
+        };
+
+        // Assert
+        Assert.Equal("test.jpg", file.DisplayName);
+    }
+
+    [Fact]
+    public void ImageFile_IsFromShortcut_RaisesDisplayNamePropertyChanged()
+    {
+        // Arrange
+        var file = new ImageFile { FileName = "test.jpg", FilePath = "C:\\test.jpg" };
+        var displayNameChangedRaised = false;
+        file.PropertyChanged += (s, e) =>
+        {
+            if (e.PropertyName == nameof(ImageFile.DisplayName))
+                displayNameChangedRaised = true;
+        };
+
+        // Act
+        file.IsFromShortcut = true;
+
+        // Assert
+        Assert.True(displayNameChangedRaised);
+    }
+
+    [Fact]
+    public void ImageFile_ShortcutName_RaisesDisplayNamePropertyChanged()
+    {
+        // Arrange
+        var file = new ImageFile { FileName = "test.jpg", FilePath = "C:\\test.jpg" };
+        var displayNameChangedRaised = false;
+        file.PropertyChanged += (s, e) =>
+        {
+            if (e.PropertyName == nameof(ImageFile.DisplayName))
+                displayNameChangedRaised = true;
+        };
+
+        // Act
+        file.ShortcutName = "Pictures";
+
+        // Assert
+        Assert.True(displayNameChangedRaised);
+    }
+
+    #endregion
 }

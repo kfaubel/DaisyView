@@ -4,6 +4,9 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.IO;
+using System.Runtime.InteropServices;
+using System.Runtime.InteropServices.ComTypes;
+using System.Text;
 using DaisyView.Constants;
 using DaisyView.Helpers;
 using DaisyView.Models;
@@ -16,6 +19,39 @@ namespace DaisyView.Services;
 /// </summary>
 public class FileSystemService : IDisposable
 {
+    #region COM Interop for Shell Links
+
+    [ComImport]
+    [Guid("00021401-0000-0000-C000-000000000046")]
+    private class ShellLink { }
+
+    [ComImport]
+    [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    [Guid("000214F9-0000-0000-C000-000000000046")]
+    private interface IShellLinkW
+    {
+        void GetPath([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder pszFile, int cchMaxPath, IntPtr pfd, int fFlags);
+        void GetIDList(out IntPtr ppidl);
+        void SetIDList(IntPtr pidl);
+        void GetDescription([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder pszName, int cchMaxName);
+        void SetDescription([MarshalAs(UnmanagedType.LPWStr)] string pszName);
+        void GetWorkingDirectory([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder pszDir, int cchMaxPath);
+        void SetWorkingDirectory([MarshalAs(UnmanagedType.LPWStr)] string pszDir);
+        void GetArguments([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder pszArgs, int cchMaxPath);
+        void SetArguments([MarshalAs(UnmanagedType.LPWStr)] string pszArgs);
+        void GetHotkey(out short pwHotkey);
+        void SetHotkey(short wHotkey);
+        void GetShowCmd(out int piShowCmd);
+        void SetShowCmd(int iShowCmd);
+        void GetIconLocation([Out, MarshalAs(UnmanagedType.LPWStr)] StringBuilder pszIconPath, int cchIconPath, out int piIcon);
+        void SetIconLocation([MarshalAs(UnmanagedType.LPWStr)] string pszIconPath, int iIcon);
+        void SetRelativePath([MarshalAs(UnmanagedType.LPWStr)] string pszPathRel, int dwReserved);
+        void Resolve(IntPtr hwnd, int fFlags);
+        void SetPath([MarshalAs(UnmanagedType.LPWStr)] string pszFile);
+    }
+
+    #endregion
+
     private bool _disposed = false;
     private readonly LoggingService _loggingService;
     private readonly Dictionary<string, FileSystemWatcher> _watchers = new();
@@ -137,7 +173,38 @@ public class FileSystemService : IDisposable
     }
 
     /// <summary>
+    /// Resolves a Windows shortcut (.lnk) file to get its target path
+    /// </summary>
+    /// <param name="shortcutPath">Full path to the .lnk file</param>
+    /// <returns>Target path, or null if resolution fails or target is not a directory</returns>
+    private string? ResolveShortcutToFolder(string shortcutPath)
+    {
+        try
+        {
+            var link = (IShellLinkW)new ShellLink();
+            var persistFile = (IPersistFile)link;
+            persistFile.Load(shortcutPath, 0);
+
+            var targetPath = new StringBuilder(260);
+            link.GetPath(targetPath, targetPath.Capacity, IntPtr.Zero, 0);
+
+            var target = targetPath.ToString();
+            if (!string.IsNullOrEmpty(target) && Directory.Exists(target))
+            {
+                return target;
+            }
+        }
+        catch (Exception ex)
+        {
+            _loggingService.LogTrace("Failed to resolve shortcut {ShortcutPath}: {Message}", shortcutPath, ex.Message);
+        }
+
+        return null;
+    }
+
+    /// <summary>
     /// Gets image files in a folder (jpg, jpeg, png, gif, bmp, tif, tiff, webp, webm, mp4, avi, mpeg, mpg)
+    /// Also includes images from folders referenced by shortcuts (.lnk files) in the current folder
     /// </summary>
     public List<ImageFile> GetImageFiles(string folderPath)
     {
@@ -147,6 +214,7 @@ public class FileSystemService : IDisposable
         {
             var directory = new DirectoryInfo(folderPath);
             
+            // Get direct image files
             var files = directory.GetFiles()
                 .Where(f => MediaTypeHelper.IsSupportedMedia(f.FullName))
                 .OrderBy(f => f.Name)
@@ -162,11 +230,49 @@ public class FileSystemService : IDisposable
                     IsMarked = false,
                     IsActive = false,
                     IsVideo = isVideo,
-                    ThumbnailGenerated = false
+                    ThumbnailGenerated = false,
+                    IsFromShortcut = false,
+                    ShortcutName = null
                 });
             }
 
-            _loggingService.LogTrace("Found {ImageCount} image files in {FolderPath}", images.Count, folderPath);
+            // Get images from shortcut folders
+            var shortcuts = directory.GetFiles("*.lnk");
+            foreach (var shortcut in shortcuts)
+            {
+                var targetFolder = ResolveShortcutToFolder(shortcut.FullName);
+                if (targetFolder != null)
+                {
+                    var shortcutName = Path.GetFileNameWithoutExtension(shortcut.Name);
+                    var targetDir = new DirectoryInfo(targetFolder);
+                    
+                    var shortcutFiles = targetDir.GetFiles()
+                        .Where(f => MediaTypeHelper.IsSupportedMedia(f.FullName))
+                        .OrderBy(f => f.Name)
+                        .ToList();
+
+                    foreach (var file in shortcutFiles)
+                    {
+                        var isVideo = MediaTypeHelper.IsVideoFile(file.FullName);
+                        images.Add(new ImageFile
+                        {
+                            FileName = file.Name,
+                            FilePath = file.FullName,
+                            IsMarked = false,
+                            IsActive = false,
+                            IsVideo = isVideo,
+                            ThumbnailGenerated = false,
+                            IsFromShortcut = true,
+                            ShortcutName = shortcutName
+                        });
+                    }
+
+                    _loggingService.LogTrace("Found {Count} images in shortcut '{ShortcutName}' -> {TargetFolder}", 
+                        shortcutFiles.Count, shortcutName, targetFolder);
+                }
+            }
+
+            _loggingService.LogTrace("Found {ImageCount} image files in {FolderPath} (including shortcuts)", images.Count, folderPath);
         }
         catch (Exception ex)
         {

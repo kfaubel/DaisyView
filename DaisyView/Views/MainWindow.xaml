@@ -383,6 +383,19 @@
                     <TextBlock Text="📋" FontSize="20" Foreground="{Binding RelativeSource={RelativeSource AncestorType={x:Type Button}}, Path=Foreground}" />
                 </Button>
 
+                <!-- Invert Selection Button -->
+                <Button Name="InvertSelectionButton" 
+                        Width="40"
+                        Height="40"
+                        Margin="0,0,10,0"
+                        Foreground="White"
+                        Style="{StaticResource DisabledAwareIconButtonStyle}"
+                        ToolTip="Invert selection"
+                        IsEnabled="{Binding MoveButtonEnabled}"
+                        Command="{Binding InvertSelectionCommand}">
+                    <TextBlock Text="🔄" FontSize="20" Foreground="{Binding RelativeSource={RelativeSource AncestorType={x:Type Button}}, Path=IsEnabled, Converter={StaticResource BoolToBrushConverter}}" />
+                </Button>
+
                 <!-- Delete Button - Trashcan Icon -->
                 <Button Name="DeleteButton" 
                         Width="40"
@@ -491,7 +504,7 @@
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
                                 <Grid MouseLeftButtonDown="Thumbnail_MouseLeftButtonDown"
-                                      ToolTip="{Binding FileName}">
+                                      ToolTip="{Binding DisplayName}">
                                     <Border BorderThickness="2" 
                                             BorderBrush="{Binding IsActive, Converter={StaticResource BoolToRedBrushConverter}}"
                                             Margin="5">

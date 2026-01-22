@@ -304,13 +304,18 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Handles keyboard input (F11 to open slideshow)
+    /// Handles keyboard input (F11 to open slideshow, Ctrl+A to select all)
     /// </summary>
     private void MainWindow_PreviewKeyDown(object sender, KeyEventArgs e)
     {
         if (e.Key == Key.F11)
         {
             _viewModel?.OpenSlideshow();
+            e.Handled = true;
+        }
+        else if (e.Key == Key.A && Keyboard.Modifiers == ModifierKeys.Control)
+        {
+            _viewModel?.SelectAll();
             e.Handled = true;
         }
     }
@@ -398,16 +403,31 @@ public partial class MainWindow : Window
 
     /// <summary>
     /// Handles the Cut button click - cuts marked images to clipboard
+    /// Linked files from shortcuts cannot be cut - only directly present files
     /// </summary>
     private void CutButton_Click(object sender, RoutedEventArgs e)
     {
         if (_viewModel == null)
             return;
 
-        var markedFiles = _viewModel.Images.Where(i => i.IsMarked).Select(i => i.FilePath).ToList();
+        // Filter out files from shortcuts - they cannot be cut
+        var markedFiles = _viewModel.Images
+            .Where(i => i.IsMarked && !i.IsFromShortcut)
+            .Select(i => i.FilePath)
+            .ToList();
+        
+        var shortcutFilesCount = _viewModel.Images.Count(i => i.IsMarked && i.IsFromShortcut);
+        
         if (markedFiles.Count == 0)
         {
-            _viewModel.StatusMessage = "No images marked for cutting.";
+            if (shortcutFilesCount > 0)
+            {
+                _viewModel.StatusMessage = $"Cannot cut linked files from shortcuts. {shortcutFilesCount} linked file(s) skipped.";
+            }
+            else
+            {
+                _viewModel.StatusMessage = "No images marked for cutting.";
+            }
             return;
         }
 
@@ -421,7 +441,8 @@ public partial class MainWindow : Window
             System.Windows.Clipboard.SetDataObject(data);
             
             UpdateClipboardStatus();
-            _viewModel.StatusMessage = $"Cut {markedFiles.Count} image(s) to clipboard.";
+            var skipMessage = shortcutFilesCount > 0 ? $" ({shortcutFilesCount} linked file(s) skipped)" : "";
+            _viewModel.StatusMessage = $"Cut {markedFiles.Count} image(s) to clipboard.{skipMessage}";
         }
         catch (Exception ex)
         {
@@ -509,20 +530,36 @@ public partial class MainWindow : Window
 
     /// <summary>
     /// Handles the Delete button click - moves marked images to recycle bin
+    /// Linked files from shortcuts cannot be deleted - only directly present files
     /// </summary>
     private void DeleteButton_Click(object sender, RoutedEventArgs e)
     {
         if (_viewModel == null)
             return;
 
-        var markedFiles = _viewModel.Images.Where(i => i.IsMarked).Select(i => i.FilePath).ToList();
+        // Filter out files from shortcuts - they cannot be deleted
+        var markedFiles = _viewModel.Images
+            .Where(i => i.IsMarked && !i.IsFromShortcut)
+            .Select(i => i.FilePath)
+            .ToList();
+        
+        var shortcutFilesCount = _viewModel.Images.Count(i => i.IsMarked && i.IsFromShortcut);
+        
         if (markedFiles.Count == 0)
         {
-            _viewModel.StatusMessage = "No images marked for deletion.";
+            if (shortcutFilesCount > 0)
+            {
+                _viewModel.StatusMessage = $"Cannot delete linked files from shortcuts. {shortcutFilesCount} linked file(s) skipped.";
+            }
+            else
+            {
+                _viewModel.StatusMessage = "No images marked for deletion.";
+            }
             return;
         }
 
-        var result = MessageBox.Show($"Move {markedFiles.Count} image(s) to recycle bin?", "Confirm Delete", MessageBoxButton.YesNo, MessageBoxImage.Question);
+        var skipMessage = shortcutFilesCount > 0 ? $" ({shortcutFilesCount} linked file(s) will be skipped)" : "";
+        var result = MessageBox.Show($"Move {markedFiles.Count} image(s) to recycle bin?{skipMessage}", "Confirm Delete", MessageBoxButton.YesNo, MessageBoxImage.Question);
         
         if (result == MessageBoxResult.Yes)
         {
@@ -539,7 +576,8 @@ public partial class MainWindow : Window
                     }
                 }
 
-                _viewModel.StatusMessage = $"Moved {markedFiles.Count} image(s) to recycle bin.";
+                var deletedMessage = shortcutFilesCount > 0 ? $" ({shortcutFilesCount} linked file(s) skipped)" : "";
+                _viewModel.StatusMessage = $"Moved {markedFiles.Count} image(s) to recycle bin.{deletedMessage}";
                 _viewModel.NavigateToFolder(_viewModel.ActiveFolder?.FullPath);
             }
             catch (Exception ex)

@@ -15,11 +15,38 @@ public class ImageFile : INotifyPropertyChanged
     private bool _thumbnailGenerated;
     private bool _isVideo;
     private string? _convertedVideoPath;
+    private bool _isFromShortcut;
+    private string? _shortcutName;
 
     /// <summary>
     /// File name without path
     /// </summary>
     public required string FileName { get; set; }
+
+    /// <summary>
+    /// Display name shown in UI (includes shortcut prefix if from a shortcut)
+    /// </summary>
+    public string DisplayName => _isFromShortcut && !string.IsNullOrEmpty(_shortcutName) 
+        ? $"[{_shortcutName}] {FileName}" 
+        : FileName;
+
+    /// <summary>
+    /// Whether this file is from a shortcut folder (not directly in the current folder)
+    /// </summary>
+    public bool IsFromShortcut
+    {
+        get => _isFromShortcut;
+        set { if (_isFromShortcut != value) { _isFromShortcut = value; OnPropertyChanged(); OnPropertyChanged(nameof(DisplayName)); } }
+    }
+
+    /// <summary>
+    /// Name of the shortcut folder this file came from (without .lnk extension)
+    /// </summary>
+    public string? ShortcutName
+    {
+        get => _shortcutName;
+        set { if (_shortcutName != value) { _shortcutName = value; OnPropertyChanged(); OnPropertyChanged(nameof(DisplayName)); } }
+    }
 
     /// <summary>
     /// Full path to the file

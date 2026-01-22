@@ -291,7 +291,7 @@ public partial class SlideshowWindow : Window
         private void UpdateFileNameDisplay(ImageFile currentImage)
         {
             var position = $"[{_currentImageIndex + 1}/{_images.Count}] ";
-            FileNameDisplay.Text = position + currentImage.FileName;
+            FileNameDisplay.Text = position + currentImage.DisplayName;
             FileNameDisplay.Foreground = currentImage.IsMarked
                 ? System.Windows.Media.Brushes.Red
                 : System.Windows.Media.Brushes.White;
@@ -309,7 +309,7 @@ public partial class SlideshowWindow : Window
             VideoNotSupportedOverlay.Visibility = Visibility.Collapsed;
             ImageDisplay.Visibility = Visibility.Visible;
             ImageDisplay.Source = null;
-            FileNameDisplay.Text = $"Error loading: {currentImage.FileName} - {ex.Message}";
+            FileNameDisplay.Text = $"Error loading: {currentImage.DisplayName} - {ex.Message}";
             FileNameDisplay.Foreground = System.Windows.Media.Brushes.Yellow;
         }
 

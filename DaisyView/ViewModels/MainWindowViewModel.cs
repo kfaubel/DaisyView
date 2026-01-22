@@ -62,6 +62,8 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
     private ICommand? _openSlideshowCommand;
     private ICommand? _toggleAudioCommand;
     private ICommand? _expandFolderCommand;
+    private ICommand? _selectAllCommand;
+    private ICommand? _invertSelectionCommand;
 
     public event EventHandler<FolderNavigationEventArgs>? FolderNavigated;
 
@@ -202,6 +204,8 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
     public ICommand OpenSlideshowCommand => _openSlideshowCommand ??= new RelayCommand(_ => OpenSlideshow(), _ => Images.Count > 0);
     public ICommand ToggleAudioCommand => _toggleAudioCommand ??= new RelayCommand(_ => ToggleAudio());
     public ICommand ExpandFolderCommand => _expandFolderCommand ??= new RelayCommand<TreeNode>(ExpandFolder, node => node != null);
+    public ICommand SelectAllCommand => _selectAllCommand ??= new RelayCommand(_ => SelectAll(), _ => Images.Count > 0);
+    public ICommand InvertSelectionCommand => _invertSelectionCommand ??= new RelayCommand(_ => InvertSelection(), _ => Images.Count > 0);
 
     public MainWindowViewModel()
     {
@@ -817,6 +821,30 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
         {
             MarkImage(ActiveImage);
         }
+    }
+
+    /// <summary>
+    /// Selects (marks) all images in the current folder
+    /// </summary>
+    public void SelectAll()
+    {
+        foreach (var image in Images)
+        {
+            image.IsMarked = true;
+        }
+        _loggingService.LogUserAction("Select all images", $"Marked {Images.Count} images");
+    }
+
+    /// <summary>
+    /// Inverts the selection (marks) of all images
+    /// </summary>
+    public void InvertSelection()
+    {
+        foreach (var image in Images)
+        {
+            image.IsMarked = !image.IsMarked;
+        }
+        _loggingService.LogUserAction("Invert selection", $"Toggled {Images.Count} images");
     }
 
     /// <summary>
