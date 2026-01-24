@@ -1,18 +1,16 @@
 # DaisyView - Image Viewer
 
-A feature-rich Windows image viewer built with C# and WPF.
+A feature-rich Windows image viewer built with C# and WPF.  This probably should be called YASP (Yet Another Slideshow Program) but this version has some behaviors that I was looking.
 
-## Features
-
-- **File System Navigation**: Tree view of local drives and folders
-- **Image Gallery**: Thumbnail view with multiple sizes (jpg, png, gif, bmp, tif, webp)
-- **Video Support**: MP4, AVI, MPEG, and WebM playback (WebM auto-converts to MP4)
-- **Slideshow Mode**: Full-screen viewing with keyboard/mouse navigation
-- **Favorites**: Quick access to frequently used folders
-- **Image Marking**: Mark images for batch move/delete operations
-- **Random Sort**: Shuffle image display order per folder
-- **Themes**: Light, Dark, or System theme
-- **Auto-Updates**: Checks for new versions via GitHub Releases
+Specific features include
+- Support for both still images and simple video clips.
+- Support for fits files used for astrophotography.
+- Ability to resume the slideshow from where I last left off.
+- Support for remembering favorite folders.
+- Ability to mark images in thumbnail view or while in slideshow mode.
+- Ability to cut, copy, paste or delete those marked images.
+- Ability to shuffle the image order in slideshow mode.
+- Ability to create virtual folders (a folder with shortcuts to other image folders)
 
 ## Installation
 
@@ -81,6 +79,10 @@ The script will:
 ### Main Window
 | Key | Action |
 |-----|--------|
+| → | Next image |
+| ← | Previous image |
+| Space | Mark/unmark image |
+| M | Toggle audio mute (videos) |
 | F11 | Enter slideshow mode |
 
 ### Slideshow Mode
@@ -98,7 +100,7 @@ Settings are stored in `%LOCALAPPDATA%\DaisyView\settings.json`:
 
 | Setting | Values | Default |
 |---------|--------|---------|
-| Theme | Light, Dark, System | Dark |
+| Theme | Light, Dark, System | Dark (only Dark right now) |
 | ThumbnailSize | Small (100px), Medium (200px), Large (400px) | Medium |
 | LoggingLevel | Trace, Information, Warning, Error | Trace |
 | VideoCacheMaxSizeBytes | bytes | 20 GB |
@@ -150,3 +152,7 @@ Logs are written to `%LOCALAPPDATA%\DaisyView\Logs\` and include:
 ## License
 
 MIT License
+
+## Notes
+
+This was vibe coded including all of the unit tests.  There may be stray bits of code that could be cleaned up but there were regular checks to make sure the code was clean and maintainable. 
