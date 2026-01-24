@@ -36,13 +36,13 @@ jobs:
         # Remove debug files
         Remove-Item *.pdb
         # Create release package
-        Compress-Archive -Path * -DestinationPath ../DaisyView-win-x64.zip
+        Compress-Archive -Path * -DestinationPath ../DaisyView-win-x64-${{ github.ref_name }}.zip
         cd ..
         
     - name: Create Release
       uses: softprops/action-gh-release@v2
       with:
-        files: DaisyView-win-x64.zip
+        files: DaisyView-win-x64-${{ github.ref_name }}.zip
         generate_release_notes: true
         draft: false
         prerelease: ${{ contains(github.ref, 'beta') || contains(github.ref, 'alpha') }}
@@ -55,7 +55,7 @@ jobs:
           - [.NET 8 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/8.0)
           
           ### Installation
-          1. Download `DaisyView-win-x64.zip`
+          1. Download `DaisyView-win-x64-${{ github.ref_name }}.zip`
           2. Extract all files to a folder
           3. Run `DaisyView.exe`
           
