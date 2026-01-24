@@ -26,6 +26,11 @@
     <!-- FFmpeg for video processing -->
     <PackageReference Include="FFMpegCore" Version="5.1.0" />
     
+    <!-- FITS astronomical image support (suppress .NET Framework compatibility warning) -->
+    <PackageReference Include="CSharpFITS" Version="1.1.0">
+      <NoWarn>NU1701</NoWarn>
+    </PackageReference>
+    
     <!-- Logging -->
     <PackageReference Include="Serilog" Version="3.1.0" />
     <PackageReference Include="Serilog.Sinks.File" Version="5.0.0" />

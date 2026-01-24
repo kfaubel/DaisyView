@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using System.Windows.Media.Imaging;
 using FFMpegCore;
 using DaisyView.Constants;
+using DaisyView.Helpers;
 using DaisyView.Models;
 
 namespace DaisyView.Services;
@@ -19,6 +20,7 @@ namespace DaisyView.Services;
 public class ThumbnailService : IDisposable
 {
     private readonly LoggingService _loggingService;
+    private readonly FitsImageService _fitsImageService;
     private CancellationTokenSource? _backgroundTaskCancellation;
     private static readonly object LockObject = new();
     private volatile int _currentThumbnailSize = 200; // Default size - volatile for thread safety
@@ -29,6 +31,7 @@ public class ThumbnailService : IDisposable
     public ThumbnailService(LoggingService loggingService)
     {
         _loggingService = loggingService;
+        _fitsImageService = new FitsImageService(loggingService);
     }
 
     /// <summary>
@@ -91,32 +94,38 @@ public class ThumbnailService : IDisposable
             if (imageFile.ThumbnailGenerated)
                 return;
 
-            BitmapImage? bitmap = null;
+            BitmapSource? bitmapSource = null;
 
             if (imageFile.IsVideo)
             {
                 // For video files, try to extract first frame using FFmpeg
-                bitmap = ExtractVideoFrameThumbnail(imageFile.FilePath);
+                bitmapSource = ExtractVideoFrameThumbnail(imageFile.FilePath);
                 
                 // If extraction failed, create a placeholder
-                if (bitmap == null)
+                if (bitmapSource == null)
                 {
-                    bitmap = CreateVideoPlaceholder();
+                    bitmapSource = CreateVideoPlaceholder();
                 }
+            }
+            else if (MediaTypeHelper.IsFitsFile(imageFile.FilePath))
+            {
+                // For FITS files, use the FitsImageService
+                bitmapSource = _fitsImageService.LoadFitsImage(imageFile.FilePath, _currentThumbnailSize);
             }
             else
             {
-                // For image files, load directly
-                bitmap = new BitmapImage();
+                // For standard image files, load directly
+                var bitmap = new BitmapImage();
                 bitmap.BeginInit();
                 bitmap.UriSource = new Uri(imageFile.FilePath);
                 bitmap.DecodePixelWidth = _currentThumbnailSize;
                 bitmap.CacheOption = BitmapCacheOption.OnLoad;
                 bitmap.EndInit();
                 bitmap.Freeze();
+                bitmapSource = bitmap;
             }
 
-            if (bitmap == null)
+            if (bitmapSource == null)
             {
                 _loggingService.LogWarning("Failed to generate thumbnail for {FileName}: bitmap is null", imageFile.FileName);
                 return;
@@ -127,7 +136,7 @@ public class ThumbnailService : IDisposable
                 imageFile.ThumbnailGenerated = true;
                 // Store encoded bitmap data
                 var encoder = new PngBitmapEncoder();
-                encoder.Frames.Add(BitmapFrame.Create(bitmap));
+                encoder.Frames.Add(BitmapFrame.Create(bitmapSource));
                 
                 using var ms = new MemoryStream();
                 encoder.Save(ms);

@@ -15,7 +15,7 @@ public static class MediaTypeHelper
     /// </summary>
     private static readonly HashSet<string> ImageExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
-        ".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff", ".webp"
+        ".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff", ".webp", ".fits", ".fit"
     };
 
     /// <summary>
@@ -39,7 +39,7 @@ public static class MediaTypeHelper
     /// </summary>
     public static readonly string[] AllSupportedExtensions = 
     {
-        ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tif", ".tiff", ".webp",
+        ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tif", ".tiff", ".webp", ".fits", ".fit",
         ".webm", ".mp4", ".avi", ".mpeg", ".mpg"
     };
 
@@ -119,5 +119,15 @@ public static class MediaTypeHelper
         var ext = Path.GetExtension(filePath);
         return ext.Equals(".mpeg", StringComparison.OrdinalIgnoreCase) ||
                ext.Equals(".mpg", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Checks if a file is a FITS astronomical image
+    /// </summary>
+    public static bool IsFitsFile(string filePath)
+    {
+        var ext = Path.GetExtension(filePath);
+        return ext.Equals(".fits", StringComparison.OrdinalIgnoreCase) ||
+               ext.Equals(".fit", StringComparison.OrdinalIgnoreCase);
     }
 }

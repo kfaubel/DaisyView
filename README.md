@@ -37,6 +37,9 @@ A feature-rich Windows image viewer built with C# and WPF.
 # Build
 dotnet build DaisyView.sln
 
+# Build specific configuration
+dotnet build --configuration Release
+
 # Run
 dotnet run --project DaisyView/DaisyView.csproj
 

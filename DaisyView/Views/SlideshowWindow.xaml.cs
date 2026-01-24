@@ -24,17 +24,19 @@ public partial class SlideshowWindow : Window
         private DispatcherTimer? _videoLoopTimer;
         private DispatcherTimer? _cursorHideTimer;
         private VideoConversionService? _videoConversionService;
+        private FitsImageService? _fitsImageService;
         private bool _isCursorHidden = false;
         private bool _audioEnabled = true;
         private Point _lastMousePosition = new();
 
-        public SlideshowWindow(List<ImageFile> images, int activeImageIndex = 0, VideoConversionService? videoConversionService = null, bool audioEnabled = true)
+        public SlideshowWindow(List<ImageFile> images, int activeImageIndex = 0, VideoConversionService? videoConversionService = null, bool audioEnabled = true, FitsImageService? fitsImageService = null)
         {
             InitializeComponent();
 
             _images = images;
             _currentImageIndex = Math.Max(0, activeImageIndex);
             _videoConversionService = videoConversionService;
+            _fitsImageService = fitsImageService;
             _audioEnabled = audioEnabled;
             // Setup video looping timer
             _videoLoopTimer = new DispatcherTimer();
@@ -272,17 +274,28 @@ public partial class SlideshowWindow : Window
             VideoDisplay.Stop();
             VideoDisplay.Source = null;
 
-            var bitmap = new System.Windows.Media.Imaging.BitmapImage();
-            bitmap.BeginInit();
-            bitmap.UriSource = new Uri(System.IO.Path.GetFullPath(currentImage.FilePath), UriKind.Absolute);
-            bitmap.CacheOption = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
-            bitmap.EndInit();
-            bitmap.Freeze();
+            System.Windows.Media.Imaging.BitmapSource? imageSource = null;
+
+            // Check if this is a FITS file
+            if (MediaTypeHelper.IsFitsFile(currentImage.FilePath))
+            {
+                imageSource = _fitsImageService?.LoadFitsImage(currentImage.FilePath);
+            }
+            else
+            {
+                var bitmap = new System.Windows.Media.Imaging.BitmapImage();
+                bitmap.BeginInit();
+                bitmap.UriSource = new Uri(System.IO.Path.GetFullPath(currentImage.FilePath), UriKind.Absolute);
+                bitmap.CacheOption = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
+                bitmap.EndInit();
+                bitmap.Freeze();
+                imageSource = bitmap;
+            }
 
             VideoDisplay.Visibility = Visibility.Collapsed;
             VideoNotSupportedOverlay.Visibility = Visibility.Collapsed;
             ImageDisplay.Visibility = Visibility.Visible;
-            ImageDisplay.Source = bitmap;
+            ImageDisplay.Source = imageSource;
         }
 
         /// <summary>

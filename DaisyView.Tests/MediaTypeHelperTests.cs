@@ -18,6 +18,8 @@ public class MediaTypeHelperTests
     [InlineData("photo.tif", true)]
     [InlineData("photo.tiff", true)]
     [InlineData("photo.webp", true)]
+    [InlineData("photo.fits", true)]
+    [InlineData("photo.fit", true)]
     [InlineData("video.gif", true)]
     [InlineData("video.mp4", true)]
     [InlineData("video.webm", true)]
@@ -61,6 +63,8 @@ public class MediaTypeHelperTests
     [InlineData("photo.tif", true)]
     [InlineData("photo.tiff", true)]
     [InlineData("photo.webp", true)]
+    [InlineData("photo.fits", true)]
+    [InlineData("photo.fit", true)]
     public void IsStaticImage_ReturnsTrue_ForStaticImageExtensions(string fileName, bool expected)
     {
         Assert.Equal(expected, MediaTypeHelper.IsStaticImage(fileName));
@@ -178,13 +182,39 @@ public class MediaTypeHelperTests
         Assert.Contains(".gif", MediaTypeHelper.AllSupportedExtensions);
         Assert.Contains(".mp4", MediaTypeHelper.AllSupportedExtensions);
         Assert.Contains(".webm", MediaTypeHelper.AllSupportedExtensions);
+        Assert.Contains(".fits", MediaTypeHelper.AllSupportedExtensions);
+        Assert.Contains(".fit", MediaTypeHelper.AllSupportedExtensions);
     }
 
     [Fact]
     public void AllSupportedExtensions_HasExpectedCount()
     {
-        // Should have 13 extensions based on current implementation
-        Assert.Equal(13, MediaTypeHelper.AllSupportedExtensions.Length);
+        // Should have 15 extensions based on current implementation (includes FITS)
+        Assert.Equal(15, MediaTypeHelper.AllSupportedExtensions.Length);
+    }
+
+    #endregion
+
+    #region IsFitsFile Tests
+
+    [Theory]
+    [InlineData("image.fits", true)]
+    [InlineData("IMAGE.FITS", true)]
+    [InlineData("Image.Fits", true)]
+    [InlineData("image.fit", true)]
+    [InlineData("IMAGE.FIT", true)]
+    public void IsFitsFile_ReturnsTrue_ForFitsFiles(string fileName, bool expected)
+    {
+        Assert.Equal(expected, MediaTypeHelper.IsFitsFile(fileName));
+    }
+
+    [Theory]
+    [InlineData("photo.jpg")]
+    [InlineData("video.mp4")]
+    [InlineData("image.png")]
+    public void IsFitsFile_ReturnsFalse_ForNonFitsFiles(string fileName)
+    {
+        Assert.False(MediaTypeHelper.IsFitsFile(fileName));
     }
 
     #endregion
