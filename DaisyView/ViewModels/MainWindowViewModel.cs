@@ -208,6 +208,11 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
     public ICommand SelectAllCommand => _selectAllCommand ??= new RelayCommand(_ => SelectAll(), _ => Images.Count > 0);
     public ICommand InvertSelectionCommand => _invertSelectionCommand ??= new RelayCommand(_ => InvertSelection(), _ => Images.Count > 0);
 
+    /// <summary>
+    /// Gets the settings service for shared access (e.g., window placement saving)
+    /// </summary>
+    public SettingsService SettingsService => _settingsService;
+
     public MainWindowViewModel()
     {
         _settingsService = new SettingsService();
@@ -627,24 +632,37 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
     public void ToggleFavorite()
     {
         if (ActiveFolder == null)
+        {
+            _loggingService.LogWarning("ToggleFavorite called but ActiveFolder is null");
             return;
+        }
 
         try
         {
-            // IsFavorite has already been updated by the TwoWay binding
-            // So we check the NEW state to determine what action was taken
+            _loggingService.LogInfo("ToggleFavorite: Current IsFavorite={IsFavorite}, Path={Path}", 
+                IsFavorite, ActiveFolder.FullPath);
+            
+            // Toggle the favorite state
+            // Note: We manage the state ourselves rather than relying on binding order
             if (IsFavorite)
             {
-                _settingsService.AddFavoritFolder(ActiveFolder.FullPath);
-                _loggingService.LogUserAction("Added favorite", ActiveFolder.FullPath);
+                // Currently favorite, so remove it
+                _settingsService.RemoveFavoriteFolder(ActiveFolder.FullPath);
+                _loggingService.LogUserAction("Removed favorite", ActiveFolder.FullPath);
+                IsFavorite = false;
             }
             else
             {
-                _settingsService.RemoveFavoriteFolder(ActiveFolder.FullPath);
-                _loggingService.LogUserAction("Removed favorite", ActiveFolder.FullPath);
+                // Not currently favorite, so add it
+                _settingsService.AddFavoritFolder(ActiveFolder.FullPath);
+                _loggingService.LogUserAction("Added favorite", ActiveFolder.FullPath);
+                IsFavorite = true;
             }
 
+            _loggingService.LogInfo("ToggleFavorite: After toggle IsFavorite={IsFavorite}", IsFavorite);
             LoadFavorites();
+            _loggingService.LogInfo("ToggleFavorite: Favorites count after LoadFavorites={Count}", 
+                Favorites.Count);
         }
         catch (Exception ex)
         {

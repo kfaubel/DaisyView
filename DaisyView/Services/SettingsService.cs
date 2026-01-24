@@ -122,10 +122,19 @@ public class SettingsService
     /// </summary>
     public void AddFavoritFolder(string folderPath)
     {
-        if (!_currentSettings.FavoriteFolders.Contains(folderPath))
+        // Use case-insensitive comparison for Windows paths
+        var alreadyExists = _currentSettings.FavoriteFolders.Any(f => 
+            string.Equals(f, folderPath, StringComparison.OrdinalIgnoreCase));
+            
+        if (!alreadyExists)
         {
             _currentSettings.FavoriteFolders.Add(folderPath);
             SaveSettings();
+            System.Diagnostics.Debug.WriteLine($"[SettingsService] Added favorite and saved: {folderPath}");
+        }
+        else
+        {
+            System.Diagnostics.Debug.WriteLine($"[SettingsService] Favorite already exists: {folderPath}");
         }
     }
 
@@ -134,9 +143,18 @@ public class SettingsService
     /// </summary>
     public void RemoveFavoriteFolder(string folderPath)
     {
-        if (_currentSettings.FavoriteFolders.Remove(folderPath))
+        // Use case-insensitive comparison for Windows paths
+        var toRemove = _currentSettings.FavoriteFolders
+            .FirstOrDefault(f => string.Equals(f, folderPath, StringComparison.OrdinalIgnoreCase));
+        
+        if (toRemove != null && _currentSettings.FavoriteFolders.Remove(toRemove))
         {
             SaveSettings();
+            System.Diagnostics.Debug.WriteLine($"[SettingsService] Removed favorite and saved: {folderPath}");
+        }
+        else
+        {
+            System.Diagnostics.Debug.WriteLine($"[SettingsService] Favorite not found to remove: {folderPath}");
         }
     }
 
@@ -175,7 +193,9 @@ public class SettingsService
     /// </summary>
     public bool IsFavorite(string folderPath)
     {
-        return _currentSettings.FavoriteFolders.Contains(folderPath);
+        // Use case-insensitive comparison for Windows paths
+        return _currentSettings.FavoriteFolders.Any(f => 
+            string.Equals(f, folderPath, StringComparison.OrdinalIgnoreCase));
     }
 
     /// <summary>

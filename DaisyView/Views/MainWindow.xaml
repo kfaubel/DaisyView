@@ -438,7 +438,7 @@
                               Width="40"
                               Height="40"
                               ToolTip="Toggle favorite"
-                              IsChecked="{Binding IsFavorite, Mode=TwoWay}"
+                              IsChecked="{Binding IsFavorite, Mode=OneWay}"
                               Command="{Binding ToggleFavoriteCommand}">
                     <ToggleButton.Style>
                         <Style TargetType="ToggleButton" BasedOn="{StaticResource IconToggleButtonStyle}">

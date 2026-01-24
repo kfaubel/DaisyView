@@ -17,14 +17,12 @@ namespace DaisyView.Views;
 public partial class MainWindow : Window
 {
     private MainWindowViewModel? _viewModel;
-    private SettingsService? _settingsService;
 
     public MainWindow()
     {
         InitializeComponent();
         
         _viewModel = new MainWindowViewModel();
-        _settingsService = new SettingsService();
         DataContext = _viewModel;
 
         // Restore window size and position from settings
@@ -48,16 +46,13 @@ public partial class MainWindow : Window
             _viewModel.PropertyChanged -= ViewModel_PropertyChanged;
         }
 
-        // Save window placement before closing
-        if (_settingsService != null)
-        {
-            _settingsService.SaveWindowPlacement(
-                this.Width,
-                this.Height,
-                this.Left,
-                this.Top,
-                this.WindowState.ToString());
-        }
+        // Save window placement before closing (use ViewModel's settings service to avoid overwriting changes)
+        _viewModel?.SettingsService.SaveWindowPlacement(
+            this.Width,
+            this.Height,
+            this.Left,
+            this.Top,
+            this.WindowState.ToString());
 
         // Dispose the ViewModel
         _viewModel?.Dispose();
@@ -68,16 +63,17 @@ public partial class MainWindow : Window
     /// </summary>
     private void RestoreWindowPlacement()
     {
-        if (_settingsService == null)
+        if (_viewModel?.SettingsService == null)
             return;
 
         try
         {
-            var width = _settingsService.GetWindowWidth();
-            var height = _settingsService.GetWindowHeight();
-            var left = _settingsService.GetWindowLeft();
-            var top = _settingsService.GetWindowTop();
-            var windowState = _settingsService.GetWindowState();
+            var settingsService = _viewModel.SettingsService;
+            var width = settingsService.GetWindowWidth();
+            var height = settingsService.GetWindowHeight();
+            var left = settingsService.GetWindowLeft();
+            var top = settingsService.GetWindowTop();
+            var windowState = settingsService.GetWindowState();
 
             // Restore window size if valid
             if (width > 0 && height > 0)

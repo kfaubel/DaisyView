@@ -513,7 +513,17 @@ public partial class SlideshowWindow : Window
     }
 
     /// <summary>
+    /// Toggles audio on/off for video playback
+    /// </summary>
+    private void ToggleAudio()
+    {
+        _audioEnabled = !_audioEnabled;
+        VideoDisplay.Volume = _audioEnabled ? 1.0 : 0.0;
+    }
+
+    /// <summary>
     /// Handles keyboard input (arrows, spacebar, ESC, F11)
+    /// </summary>
     /// </summary>
     private void SlideshowWindow_PreviewKeyDown(object sender, KeyEventArgs e)
     {
@@ -529,6 +539,9 @@ public partial class SlideshowWindow : Window
                 break;
             case Key.Space:
                 MarkCurrentImage();
+                break;
+            case Key.M:
+                ToggleAudio();
                 break;
             case Key.Escape:
             case Key.F11:

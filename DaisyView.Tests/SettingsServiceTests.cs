@@ -144,6 +144,52 @@ public class SettingsServiceTests : IDisposable
     }
 
     [Fact]
+    public void IsFavorite_IsCaseInsensitive()
+    {
+        // Arrange
+        var service = new SettingsService(_testSettingsFolder);
+        var folderPath = "C:\\TestFolder";
+        service.AddFavoritFolder(folderPath);
+
+        // Act & Assert - should match regardless of case
+        Assert.True(service.IsFavorite("C:\\TestFolder"));
+        Assert.True(service.IsFavorite("C:\\TESTFOLDER"));
+        Assert.True(service.IsFavorite("c:\\testfolder"));
+        Assert.True(service.IsFavorite("C:\\testFolder"));
+    }
+
+    [Fact]
+    public void AddFavoriteFolder_DoesNotAddDuplicatesWithDifferentCase()
+    {
+        // Arrange
+        var service = new SettingsService(_testSettingsFolder);
+
+        // Act - add same folder with different cases
+        service.AddFavoritFolder("C:\\TestFolder");
+        service.AddFavoritFolder("C:\\TESTFOLDER");
+        service.AddFavoritFolder("c:\\testfolder");
+        var favorites = service.GetFavoriteFolders();
+
+        // Assert - should only contain one instance
+        Assert.Single(favorites);
+    }
+
+    [Fact]
+    public void RemoveFavoriteFolder_WorksWithDifferentCase()
+    {
+        // Arrange
+        var service = new SettingsService(_testSettingsFolder);
+        service.AddFavoritFolder("C:\\TestFolder");
+
+        // Act - remove with different case
+        service.RemoveFavoriteFolder("c:\\testfolder");
+        var favorites = service.GetFavoriteFolders();
+
+        // Assert - should be removed
+        Assert.Empty(favorites);
+    }
+
+    [Fact]
     public void RemoveFavoriteFolder_HandlesNonExistentFolder()
     {
         // Arrange
@@ -154,6 +200,61 @@ public class SettingsServiceTests : IDisposable
 
         // Assert
         Assert.Empty(service.GetFavoriteFolders());
+    }
+
+    [Fact]
+    public void CleanupInvalidFavorites_RemovesNonExistentFolders()
+    {
+        // Arrange
+        var service = new SettingsService(_testSettingsFolder);
+        service.AddFavoritFolder("C:\\NonExistentFolder1");
+        service.AddFavoritFolder("C:\\NonExistentFolder2");
+        
+        // Act
+        var removedCount = service.CleanupInvalidFavorites();
+        
+        // Assert - all should be removed since they don't exist
+        Assert.Equal(2, removedCount);
+        Assert.Empty(service.GetFavoriteFolders());
+    }
+
+    [Fact]
+    public void CleanupInvalidFavorites_KeepsExistingFolders()
+    {
+        // Arrange
+        var service = new SettingsService(_testSettingsFolder);
+        // Add a folder that actually exists (the test folder itself)
+        service.AddFavoritFolder(_testSettingsFolder);
+        service.AddFavoritFolder("C:\\NonExistentFolder");
+        
+        // Act
+        var removedCount = service.CleanupInvalidFavorites();
+        
+        // Assert - only non-existent should be removed
+        Assert.Equal(1, removedCount);
+        Assert.Single(service.GetFavoriteFolders());
+        Assert.Contains(_testSettingsFolder, service.GetFavoriteFolders());
+    }
+
+    [Fact]
+    public void AddFavorite_ThenCleanup_ThenReload_PersistsExistingFolder()
+    {
+        // Arrange - simulate the exact flow in ToggleFavorite followed by LoadFavorites
+        var service1 = new SettingsService(_testSettingsFolder);
+        
+        // Add a folder that exists (test folder)
+        service1.AddFavoritFolder(_testSettingsFolder);
+        
+        // Call cleanup (like LoadFavorites does)
+        var removedCount = service1.CleanupInvalidFavorites();
+        Assert.Equal(0, removedCount); // Should not remove existing folder
+        
+        // Create new instance to verify persistence
+        var service2 = new SettingsService(_testSettingsFolder);
+        
+        // Assert
+        Assert.Single(service2.GetFavoriteFolders());
+        Assert.Contains(_testSettingsFolder, service2.GetFavoriteFolders());
     }
 
     #endregion
