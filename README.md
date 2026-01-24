@@ -153,6 +153,16 @@ Logs are written to `%LOCALAPPDATA%\DaisyView\Logs\` and include:
 
 MIT License
 
+## Disclaimer
+
+This software is provided "as is", without warranty of any kind, express or implied, including but not limited to the warranties of merchantability, fitness for a particular purpose, and noninfringement. In no event shall the author be liable for any claim, damages, or other liability arising from the use of this software.
+
+## Author & Copyright
+
+**Author:** Ken Faubel  
+**Copyright:** © 2026 Ken Faubel  
+**Repository:** [github.com/kfaubel/DaisyView](https://github.com/kfaubel/DaisyView)
+
 ## Notes
 
 This was vibe coded including all of the unit tests.  There may be stray bits of code that could be cleaned up but there were regular checks to make sure the code was clean and maintainable. 
