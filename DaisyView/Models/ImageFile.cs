@@ -96,7 +96,16 @@ public class ImageFile : INotifyPropertyChanged
     public byte[]? ThumbnailData
     {
         get => _thumbnailData;
-        set { if (_thumbnailData != value) { _thumbnailData = value; OnPropertyChanged(); } }
+        set 
+        { 
+            if (_thumbnailData != value) 
+            { 
+                _thumbnailData = value; 
+                // Only notify if already generated - avoids double notification
+                if (_thumbnailGenerated)
+                    OnPropertyChanged(); 
+            } 
+        }
     }
 
     /// <summary>
@@ -105,7 +114,19 @@ public class ImageFile : INotifyPropertyChanged
     public bool ThumbnailGenerated
     {
         get => _thumbnailGenerated;
-        set { if (_thumbnailGenerated != value) { _thumbnailGenerated = value; OnPropertyChanged(); } }
+        set 
+        { 
+            if (_thumbnailGenerated != value) 
+            { 
+                _thumbnailGenerated = value; 
+                // Notify for both properties when thumbnail becomes available
+                if (_thumbnailGenerated && _thumbnailData != null)
+                {
+                    OnPropertyChanged(nameof(ThumbnailData));
+                }
+                OnPropertyChanged(); 
+            } 
+        }
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;

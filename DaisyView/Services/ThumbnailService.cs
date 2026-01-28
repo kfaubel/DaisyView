@@ -16,6 +16,7 @@ namespace DaisyView.Services;
 /// Generates thumbnails for image files
 /// Visible thumbnails are generated first, then background generation processes the rest
 /// Background generation is abandoned if user changes folders
+/// Thumbnails are cached to disk for faster loading on subsequent visits
 /// </summary>
 public class ThumbnailService : IDisposable
 {
@@ -25,8 +26,11 @@ public class ThumbnailService : IDisposable
     private static readonly object LockObject = new();
     private volatile int _currentThumbnailSize = 200; // Default size - volatile for thread safety
     private bool _disposed = false;
-
-    public event EventHandler<ImageFile>? ThumbnailGenerated;
+    
+    /// <summary>
+    /// Name of the hidden folder used to cache thumbnails
+    /// </summary>
+    private const string ThumbnailCacheFolderName = ".daisyview_thumbnails";
 
     public ThumbnailService(LoggingService loggingService)
     {
@@ -43,7 +47,8 @@ public class ThumbnailService : IDisposable
     }
 
     /// <summary>
-    /// Generates thumbnails for visible images first, then background-generates the rest
+    /// Generates thumbnails for all images in the background
+    /// Visible images are prioritized but all generation happens on background threads
     /// </summary>
     public void GenerateThumbnailsAsync(List<ImageFile> images, int visibleCount)
     {
@@ -54,20 +59,22 @@ public class ThumbnailService : IDisposable
 
         var token = _backgroundTaskCancellation.Token;
 
-        // Generate visible thumbnails immediately
+        // Process all thumbnails in the background - visible ones first, then the rest
         var visibleImages = images.Take(visibleCount).ToList();
-        foreach (var image in visibleImages)
-        {
-            if (token.IsCancellationRequested)
-                return;
-
-            GenerateThumbnail(image);
-        }
-
-        // Generate remaining thumbnails in the background
         var backgroundImages = images.Skip(visibleCount).ToList();
+
         _ = Task.Run(async () =>
         {
+            // Generate visible thumbnails first (still in background, but prioritized)
+            foreach (var image in visibleImages)
+            {
+                if (token.IsCancellationRequested)
+                    return;
+
+                await GenerateThumbnailAsync(image, token);
+            }
+
+            // Generate remaining thumbnails
             foreach (var image in backgroundImages)
             {
                 if (token.IsCancellationRequested)
@@ -76,8 +83,8 @@ public class ThumbnailService : IDisposable
                     return;
                 }
 
-                GenerateThumbnail(image);
-                await Task.Delay(10, token); // Small delay to avoid blocking UI
+                await GenerateThumbnailAsync(image, token);
+                await Task.Delay(5, token); // Small delay to avoid CPU saturation
             }
 
             _loggingService.LogTrace("Thumbnail background generation completed");
@@ -85,66 +92,54 @@ public class ThumbnailService : IDisposable
     }
 
     /// <summary>
-    /// Generates a thumbnail for a single image or video file
+    /// Asynchronously generates a thumbnail for a single image
+    /// All I/O and image processing happens on background threads
     /// </summary>
-    private void GenerateThumbnail(ImageFile imageFile)
+    private async Task GenerateThumbnailAsync(ImageFile imageFile, CancellationToken token)
     {
+        if (token.IsCancellationRequested)
+            return;
+
         try
         {
             if (imageFile.ThumbnailGenerated)
                 return;
 
-            BitmapSource? bitmapSource = null;
-
-            if (imageFile.IsVideo)
+            // Try to load from cache first (on background thread)
+            var cachedData = await Task.Run(() => TryLoadFromCacheData(imageFile.FilePath), token);
+            if (cachedData != null)
             {
-                // For video files, try to extract first frame using FFmpeg
-                bitmapSource = ExtractVideoFrameThumbnail(imageFile.FilePath);
-                
-                // If extraction failed, create a placeholder
-                if (bitmapSource == null)
+                lock (LockObject)
                 {
-                    bitmapSource = CreateVideoPlaceholder();
+                    // Set data first, then generated flag to trigger single notification
+                    imageFile.ThumbnailData = cachedData;
+                    imageFile.ThumbnailGenerated = true;
                 }
-            }
-            else if (MediaTypeHelper.IsFitsFile(imageFile.FilePath))
-            {
-                // For FITS files, use the FitsImageService
-                bitmapSource = _fitsImageService.LoadFitsImage(imageFile.FilePath, _currentThumbnailSize);
-            }
-            else
-            {
-                // For standard image files, load directly
-                var bitmap = new BitmapImage();
-                bitmap.BeginInit();
-                bitmap.UriSource = new Uri(imageFile.FilePath);
-                bitmap.DecodePixelWidth = _currentThumbnailSize;
-                bitmap.CacheOption = BitmapCacheOption.OnLoad;
-                bitmap.EndInit();
-                bitmap.Freeze();
-                bitmapSource = bitmap;
-            }
-
-            if (bitmapSource == null)
-            {
-                _loggingService.LogWarning("Failed to generate thumbnail for {FileName}: bitmap is null", imageFile.FileName);
                 return;
             }
 
-            lock (LockObject)
-            {
-                imageFile.ThumbnailGenerated = true;
-                // Store encoded bitmap data
-                var encoder = new PngBitmapEncoder();
-                encoder.Frames.Add(BitmapFrame.Create(bitmapSource));
-                
-                using var ms = new MemoryStream();
-                encoder.Save(ms);
-                imageFile.ThumbnailData = ms.ToArray();
-            }
+            if (token.IsCancellationRequested)
+                return;
 
-            _loggingService.LogTrace("Thumbnail generated for {FileName}", imageFile.FileName);
-            ThumbnailGenerated?.Invoke(this, imageFile);
+            // Generate thumbnail on background thread
+            var thumbnailData = await Task.Run(() => GenerateThumbnailData(imageFile), token);
+            
+            if (thumbnailData != null)
+            {
+                lock (LockObject)
+                {
+                    // Set data first, then generated flag to trigger single notification
+                    imageFile.ThumbnailData = thumbnailData;
+                    imageFile.ThumbnailGenerated = true;
+                }
+
+                // Save to cache on background thread
+                _ = Task.Run(() => SaveToCache(imageFile, thumbnailData), token);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Expected when cancelled, don't log
         }
         catch (Exception ex)
         {
@@ -154,9 +149,146 @@ public class ThumbnailService : IDisposable
     }
 
     /// <summary>
+    /// Tries to load thumbnail data from cache, returns null if not cached or stale
+    /// </summary>
+    private byte[]? TryLoadFromCacheData(string filePath)
+    {
+        try
+        {
+            var folderPath = Path.GetDirectoryName(filePath) ?? "";
+            var fileName = Path.GetFileNameWithoutExtension(filePath) + ".jpg";
+            var cachePath = Path.Combine(GetCacheFolderPath(folderPath), fileName);
+            
+            if (!File.Exists(cachePath))
+                return null;
+
+            // Check if cache is stale
+            var originalModified = File.GetLastWriteTimeUtc(filePath);
+            var cacheModified = File.GetLastWriteTimeUtc(cachePath);
+            
+            if (originalModified > cacheModified)
+            {
+                try { File.Delete(cachePath); } catch { }
+                return null;
+            }
+
+            return File.ReadAllBytes(cachePath);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Generates thumbnail data for an image file (runs on background thread)
+    /// </summary>
+    private byte[]? GenerateThumbnailData(ImageFile imageFile)
+    {
+        try
+        {
+            int thumbnailSize = AppConstants.ThumbnailSizes.LargePixels;
+            BitmapSource? bitmapSource = null;
+
+            if (imageFile.IsVideo)
+            {
+                bitmapSource = ExtractVideoFrameThumbnail(imageFile.FilePath, thumbnailSize);
+                if (bitmapSource == null)
+                {
+                    bitmapSource = CreateVideoPlaceholder(thumbnailSize);
+                }
+            }
+            else if (MediaTypeHelper.IsFitsFile(imageFile.FilePath))
+            {
+                bitmapSource = _fitsImageService.LoadFitsImage(imageFile.FilePath, thumbnailSize);
+            }
+            else
+            {
+                var bitmap = new BitmapImage();
+                bitmap.BeginInit();
+                bitmap.UriSource = new Uri(imageFile.FilePath);
+                bitmap.DecodePixelWidth = thumbnailSize;
+                bitmap.CacheOption = BitmapCacheOption.OnLoad;
+                bitmap.EndInit();
+                bitmap.Freeze();
+                bitmapSource = bitmap;
+            }
+
+            if (bitmapSource == null)
+                return null;
+
+            // Encode to JPEG
+            var encoder = new JpegBitmapEncoder();
+            encoder.QualityLevel = 85;
+            encoder.Frames.Add(BitmapFrame.Create(bitmapSource));
+            
+            using var ms = new MemoryStream();
+            encoder.Save(ms);
+            return ms.ToArray();
+        }
+        catch (Exception ex)
+        {
+            _loggingService.LogWarning("Failed to generate thumbnail data for {FileName}: {Message}", 
+                imageFile.FileName, ex.Message);
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Gets the path to the thumbnail cache folder for a given image folder
+    /// </summary>
+    private string GetCacheFolderPath(string imageFolderPath)
+    {
+        return Path.Combine(imageFolderPath, ThumbnailCacheFolderName);
+    }
+
+    /// <summary>
+    /// Gets the cached thumbnail file path for an image
+    /// </summary>
+    private string GetCachedThumbnailPath(string imagePath)
+    {
+        var folderPath = Path.GetDirectoryName(imagePath) ?? "";
+        var fileName = Path.GetFileNameWithoutExtension(imagePath) + ".jpg";
+        return Path.Combine(GetCacheFolderPath(folderPath), fileName);
+    }
+
+    /// <summary>
+    /// Saves a thumbnail to the disk cache
+    /// </summary>
+    private void SaveToCache(ImageFile imageFile, byte[] thumbnailData)
+    {
+        try
+        {
+            var cachePath = GetCachedThumbnailPath(imageFile.FilePath);
+            var cacheFolder = Path.GetDirectoryName(cachePath);
+            
+            if (string.IsNullOrEmpty(cacheFolder))
+                return;
+
+            // Create cache folder if it doesn't exist
+            if (!Directory.Exists(cacheFolder))
+            {
+                var dirInfo = Directory.CreateDirectory(cacheFolder);
+                // Set hidden attribute on the cache folder
+                dirInfo.Attributes |= FileAttributes.Hidden;
+            }
+
+            // Save thumbnail (use JPEG for smaller file size)
+            File.WriteAllBytes(cachePath, thumbnailData);
+            
+            _loggingService.LogTrace("Saved thumbnail to cache for {FileName}", imageFile.FileName);
+        }
+        catch (Exception ex)
+        {
+            _loggingService.LogTrace("Failed to save thumbnail to cache for {FileName}: {Message}", 
+                imageFile.FileName, ex.Message);
+        }
+    }
+
+    /// <summary>
     /// Creates a placeholder image for videos when extraction fails
     /// </summary>
-    private BitmapImage? CreateVideoPlaceholder()
+    private BitmapImage? CreateVideoPlaceholder(int thumbnailSize)
     {
         try
         {
@@ -167,20 +299,20 @@ public class ThumbnailService : IDisposable
                 drawingContext.DrawRectangle(
                     new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(64, 64, 64)),
                     null,
-                    new System.Windows.Rect(0, 0, _currentThumbnailSize, _currentThumbnailSize));
+                    new System.Windows.Rect(0, 0, thumbnailSize, thumbnailSize));
                 
                 // Draw a play symbol in the center
                 var penBrush = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(200, 200, 200));
                 var pen = new System.Windows.Media.Pen(penBrush, 2);
-                int size = _currentThumbnailSize / 3;
-                int x = (_currentThumbnailSize - size) / 2;
-                int y = (_currentThumbnailSize - size) / 2;
+                int size = thumbnailSize / 3;
+                int x = (thumbnailSize - size) / 2;
+                int y = (thumbnailSize - size) / 2;
                 
                 drawingContext.DrawEllipse(null, pen, new System.Windows.Point(x + size / 2, y + size / 2), size / 2, size / 2);
             }
             
             var renderTargetBitmap = new System.Windows.Media.Imaging.RenderTargetBitmap(
-                _currentThumbnailSize, _currentThumbnailSize, 96, 96, System.Windows.Media.PixelFormats.Pbgra32);
+                thumbnailSize, thumbnailSize, 96, 96, System.Windows.Media.PixelFormats.Pbgra32);
             renderTargetBitmap.Render(drawingVisual);
             
             var bitmapImage = new BitmapImage();
@@ -209,7 +341,7 @@ public class ThumbnailService : IDisposable
     /// <summary>
     /// Extracts the first frame of a video file as a thumbnail
     /// </summary>
-    private BitmapImage? ExtractVideoFrameThumbnail(string videoPath)
+    private BitmapImage? ExtractVideoFrameThumbnail(string videoPath, int thumbnailSize)
     {
         try
         {
@@ -233,7 +365,7 @@ public class ThumbnailService : IDisposable
                     var bitmap = new BitmapImage();
                     bitmap.BeginInit();
                     bitmap.StreamSource = new MemoryStream(imageData);
-                    bitmap.DecodePixelWidth = _currentThumbnailSize;
+                    bitmap.DecodePixelWidth = thumbnailSize;
                     bitmap.CacheOption = BitmapCacheOption.OnLoad;
                     bitmap.EndInit();
                     bitmap.Freeze();
