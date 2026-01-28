@@ -177,6 +177,20 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
         set { _hasClipboardContent = value; OnPropertyChanged(nameof(HasClipboardContent)); }
     }
 
+    /// <summary>
+    /// Tracks files that were cut (for move operation) - these should be deleted after successful paste
+    /// </summary>
+    private List<string> _cutFiles = new();
+
+    /// <summary>
+    /// Gets or sets the list of files that were cut and pending deletion after paste
+    /// </summary>
+    public List<string> CutFiles
+    {
+        get => _cutFiles;
+        set { _cutFiles = value; }
+    }
+
     private string _statusMessage = "";
 
     public string StatusMessage
@@ -222,10 +236,65 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
         _videoConversionService = new VideoConversionService(_loggingService, _settingsService);
         _fitsImageService = new FitsImageService(_loggingService);
 
+        // Subscribe to file system changes to refresh the view when files are added/removed
+        _fileSystemService.FileSystemChanged += OnFileSystemChanged;
+
         LoadRootDrivesSync();
         LoadLastActiveFolder();
         LoadFavorites();
         LoadThumbnailSize();
+    }
+
+    /// <summary>
+    /// Handles file system changes (files added, deleted, renamed in the current folder)
+    /// </summary>
+    private void OnFileSystemChanged(object? sender, System.IO.FileSystemEventArgs e)
+    {
+        _loggingService.LogTrace("File system change detected: {ChangeType} - {Path}", e.ChangeType, e.FullPath);
+        
+        // Refresh the current folder view on the UI thread
+        if (ActiveFolder != null)
+        {
+            System.Windows.Application.Current?.Dispatcher.BeginInvoke(() =>
+            {
+                // Check if the change was a directory change - if so, refresh the tree node's children
+                var changedPath = e.FullPath;
+                var parentPath = System.IO.Path.GetDirectoryName(changedPath);
+                
+                if (parentPath != null && string.Equals(parentPath, ActiveFolder.FullPath, StringComparison.OrdinalIgnoreCase))
+                {
+                    // The change happened in the current folder - refresh both images and subfolders
+                    RefreshCurrentFolderSubfolders();
+                }
+                
+                NavigateToFolder(ActiveFolder.FullPath);
+            });
+        }
+    }
+
+    /// <summary>
+    /// Refreshes the subfolders of the current active folder in the tree view
+    /// </summary>
+    private void RefreshCurrentFolderSubfolders()
+    {
+        if (ActiveFolder == null)
+            return;
+
+        try
+        {
+            // Clear existing children and reload
+            ActiveFolder.Children.Clear();
+            var subfolders = _fileSystemService.GetSubfolders(ActiveFolder.FullPath, ActiveFolder);
+            foreach (var subfolder in subfolders)
+            {
+                ActiveFolder.Children.Add(subfolder);
+            }
+            _loggingService.LogTrace("Refreshed subfolders for: {FolderPath}", ActiveFolder.FullPath);
+        }
+        catch (Exception ex)
+        {
+            _loggingService.LogError("Failed to refresh subfolders for {FolderPath}", ex, ActiveFolder.FullPath);
+        }
     }
 
     /// <summary>
@@ -416,6 +485,9 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
             // Wait for the initial delay, then expand and mark the folder
             await Task.Delay(100);
             await ExpandAndMarkFolderAsync(folderPath);
+            
+            // Refresh the subfolders for the active folder to show any new/deleted folders
+            RefreshCurrentFolderSubfolders();
         }
         catch (Exception ex)
         {
@@ -971,6 +1043,9 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
 
         if (disposing)
         {
+            // Unsubscribe from file system changes
+            _fileSystemService.FileSystemChanged -= OnFileSystemChanged;
+            
             // Dispose managed resources
             _fileSystemService.Dispose();
             _thumbnailService.Dispose();

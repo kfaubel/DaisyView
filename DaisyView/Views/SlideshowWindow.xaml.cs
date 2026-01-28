@@ -554,7 +554,7 @@ public partial class SlideshowWindow : Window
     }
 
     /// <summary>
-    /// Handles mouse button clicks (left: previous, right: next)
+    /// Handles mouse button clicks (left: previous, right: next, middle: exit)
     /// </summary>
     private void SlideshowWindow_MouseDown(object sender, MouseButtonEventArgs e)
     {
@@ -569,6 +569,12 @@ public partial class SlideshowWindow : Window
         if (e.RightButton == MouseButtonState.Pressed)
         {
             ShowNextImage();
+            e.Handled = true;
+        }
+        
+        if (e.MiddleButton == MouseButtonState.Pressed)
+        {
+            Close();
             e.Handled = true;
         }
     }

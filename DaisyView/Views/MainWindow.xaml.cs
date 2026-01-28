@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Windows;
@@ -388,6 +389,9 @@ public partial class MainWindow : Window
             data.SetFileDropList(fileCollection);
             System.Windows.Clipboard.SetDataObject(data);
             
+            // Clear any previously cut files - this is a copy operation
+            _viewModel.CutFiles.Clear();
+            
             UpdateClipboardStatus();
             _viewModel.StatusMessage = $"Copied {markedFiles.Count} image(s) to clipboard.";
         }
@@ -434,7 +438,19 @@ public partial class MainWindow : Window
             
             var data = new DataObject();
             data.SetFileDropList(fileCollection);
-            System.Windows.Clipboard.SetDataObject(data);
+            
+            // Set the Preferred DropEffect to Move so File Explorer knows to delete source files after paste
+            // DragDropEffects.Move = 2
+            // Note: Don't dispose the MemoryStream - the clipboard needs it
+            var moveEffect = new byte[] { 2, 0, 0, 0 };
+            var ms = new MemoryStream(moveEffect);
+            data.SetData("Preferred DropEffect", ms);
+            
+            System.Windows.Clipboard.SetDataObject(data, true);
+            
+            // Track these files for deletion after paste (for internal DaisyView paste)
+            _viewModel.CutFiles.Clear();
+            _viewModel.CutFiles.AddRange(markedFiles);
             
             UpdateClipboardStatus();
             var skipMessage = shortcutFilesCount > 0 ? $" ({shortcutFilesCount} linked file(s) skipped)" : "";
@@ -478,9 +494,15 @@ public partial class MainWindow : Window
                 return;
             }
 
-            // Copy files to the current folder
+            // Determine if this is a cut (move) operation
+            var cutFiles = _viewModel.CutFiles.ToList();
+            var isCutOperation = cutFiles.Count > 0;
+            
+            // Build a set of cut file paths for quick lookup (case-insensitive on Windows)
+            var cutFileSet = new HashSet<string>(cutFiles, StringComparer.OrdinalIgnoreCase);
+
             var destFolder = _viewModel.ActiveFolder.FullPath;
-            int copiedCount = 0;
+            int processedCount = 0;
 
             foreach (var filePath in files)
             {
@@ -492,7 +514,7 @@ public partial class MainWindow : Window
                         var destPath = Path.Combine(destFolder, fileName);
                         
                         // Handle duplicate filenames
-                        if (File.Exists(destPath))
+                        if (File.Exists(destPath) && !string.Equals(filePath, destPath, StringComparison.OrdinalIgnoreCase))
                         {
                             var nameWithoutExt = Path.GetFileNameWithoutExtension(filePath);
                             var ext = Path.GetExtension(filePath);
@@ -504,17 +526,40 @@ public partial class MainWindow : Window
                             }
                         }
 
-                        File.Copy(filePath, destPath, overwrite: true);
-                        copiedCount++;
+                        // If this file was cut, move it; otherwise copy it
+                        if (cutFileSet.Contains(filePath))
+                        {
+                            // Skip if source and dest are the same
+                            if (!string.Equals(filePath, destPath, StringComparison.OrdinalIgnoreCase))
+                            {
+                                File.Move(filePath, destPath, overwrite: true);
+                            }
+                        }
+                        else
+                        {
+                            File.Copy(filePath, destPath, overwrite: true);
+                        }
+                        processedCount++;
                     }
                 }
                 catch (Exception ex)
                 {
-                    _viewModel.StatusMessage = $"Error copying {Path.GetFileName(filePath)}: {ex.Message}";
+                    _viewModel.StatusMessage = $"Error processing {Path.GetFileName(filePath)}: {ex.Message}";
                 }
             }
 
-            _viewModel.StatusMessage = $"Pasted {copiedCount} image(s).";
+            // Clear the cut files list and clipboard after successful move
+            if (isCutOperation)
+            {
+                _viewModel.CutFiles.Clear();
+                System.Windows.Clipboard.Clear();
+                _viewModel.StatusMessage = $"Moved {processedCount} image(s).";
+            }
+            else
+            {
+                _viewModel.StatusMessage = $"Pasted {processedCount} image(s).";
+            }
+            
             UpdateClipboardStatus();
             _viewModel.NavigateToFolder(_viewModel.ActiveFolder.FullPath);
         }
