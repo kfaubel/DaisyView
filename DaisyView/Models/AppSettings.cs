@@ -46,6 +46,11 @@ public class AppSettings
     public List<string> RandomEnabledFolders { get; set; } = new();
 
     /// <summary>
+    /// Tracks the last active image file name for each visited folder (key: folder path, value: file name)
+    /// </summary>
+    public Dictionary<string, string> LastActiveImagePerFolder { get; set; } = new();
+
+    /// <summary>
     /// Maximum video cache size in bytes (default: 20 GB)
     /// </summary>
     public long VideoCacheMaxSizeBytes { get; set; } = AppConstants.Timing.DefaultCacheMaxSizeBytes;

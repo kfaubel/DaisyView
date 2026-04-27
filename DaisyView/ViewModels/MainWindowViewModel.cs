@@ -4,6 +4,7 @@ using System.Collections.ObjectModel;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Windows.Input;
+using DaisyView.Constants;
 using DaisyView.Models;
 using DaisyView.Services;
 
@@ -54,6 +55,9 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
     private string _thumbnailSize = "Medium";
     private List<string> _favorites = new();
     private bool _audioEnabled = true;
+    private int _lastPriorityStartIndex = -1;
+    private int _lastPriorityEndIndex = -1;
+    private string? _currentFolderPath;
 
     // Commands
     private ICommand? _navigateToFolderCommand;
@@ -121,7 +125,13 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
     public ImageFile? ActiveImage
     {
         get => _activeImage;
-        set { _activeImage = value; OnPropertyChanged(nameof(ActiveImage)); }
+        set
+        {
+            _activeImage = value;
+            OnPropertyChanged(nameof(ActiveImage));
+            if (_currentFolderPath != null && value != null)
+                _settingsService.SetLastActiveImage(_currentFolderPath, value.FileName);
+        }
     }
 
     public bool RandomEnabled
@@ -435,9 +445,20 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
             // Load images from the new folder asynchronously
             var images = await _fileSystemService.GetImageFilesAsync(folderPath);
             Images = new ObservableCollection<ImageFile>(images);
+            _currentFolderPath = folderPath;
 
-            // Set first image as active
-            if (images.Count > 0)
+            // Restore last active image for this folder, or fall back to first image
+            var lastActiveFileName = _settingsService.GetLastActiveImage(folderPath);
+            var restoredImage = lastActiveFileName != null
+                ? images.FirstOrDefault(i => string.Equals(i.FileName, lastActiveFileName, StringComparison.OrdinalIgnoreCase))
+                : null;
+
+            if (restoredImage != null)
+            {
+                restoredImage.IsActive = true;
+                ActiveImage = restoredImage;
+            }
+            else if (images.Count > 0)
             {
                 images[0].IsActive = true;
                 ActiveImage = images[0];
@@ -457,7 +478,7 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
             IsFavorite = _settingsService.IsFavorite(folderPath);
 
             // Generate thumbnails
-            var visibleCount = 10; // TODO: Calculate based on UI size
+            var visibleCount = AppConstants.ThumbnailSizes.DefaultVisibleCount;
 
             // Load random order if it was previously enabled
             var randomOrder = _settingsService.GetRandomOrder(folderPath);
@@ -474,6 +495,9 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
                 // Generate thumbnails for the normal order
                 _thumbnailService.GenerateThumbnailsAsync(images, visibleCount);
             }
+
+            _lastPriorityStartIndex = -1;
+            _lastPriorityEndIndex = -1;
 
             // Start background conversion of WebM files to populate cache
             _ = StartBackgroundVideoConversionAsync(images);
@@ -786,7 +810,7 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
                 _loggingService.LogTrace("After ReorderImagesRandomly, Images: {Images}", string.Join(", ", Images.Select(i => i.FileName)));
                 
                 // Regenerate thumbnails in the new random order
-                var visibleCount = 10; // TODO: Calculate based on UI size
+                var visibleCount = AppConstants.ThumbnailSizes.DefaultVisibleCount;
                 _loggingService.LogTrace("Regenerating thumbnails for {Count} images in random order", Images.Count);
                 _thumbnailService.GenerateThumbnailsAsync(Images.ToList(), visibleCount);
             }
@@ -802,7 +826,7 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
                 Images = new ObservableCollection<ImageFile>(images);
                 
                 // Generate thumbnails for the reloaded images
-                var visibleCount = 10; // TODO: Calculate based on UI size
+                var visibleCount = AppConstants.ThumbnailSizes.DefaultVisibleCount;
                 _loggingService.LogTrace("Regenerating thumbnails for {Count} images in alphabetical order", Images.Count);
                 _thumbnailService.GenerateThumbnailsAsync(images, visibleCount);
                 
@@ -1019,9 +1043,31 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
             }
 
             // Regenerate with new size
-            var visibleCount = 10; // TODO: Calculate based on UI size
+            var visibleCount = AppConstants.ThumbnailSizes.DefaultVisibleCount;
             _thumbnailService.GenerateThumbnailsAsync(Images.ToList(), visibleCount);
+
+            _lastPriorityStartIndex = -1;
+            _lastPriorityEndIndex = -1;
         }
+    }
+
+    /// <summary>
+    /// Reprioritizes thumbnail generation so tiles currently in view are processed first.
+    /// </summary>
+    public void PrioritizeVisibleThumbnails(int visibleStartIndex, int visibleEndIndex)
+    {
+        if (Images.Count == 0)
+            return;
+
+        var safeStart = Math.Clamp(visibleStartIndex, 0, Images.Count - 1);
+        var safeEnd = Math.Clamp(visibleEndIndex, safeStart, Images.Count - 1);
+
+        if (safeStart == _lastPriorityStartIndex && safeEnd == _lastPriorityEndIndex)
+            return;
+
+        _lastPriorityStartIndex = safeStart;
+        _lastPriorityEndIndex = safeEnd;
+        _thumbnailService.GenerateThumbnailsAsync(Images.ToList(), safeStart, safeEnd);
     }
 
     /// <summary>

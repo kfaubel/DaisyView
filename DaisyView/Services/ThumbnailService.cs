@@ -16,10 +16,10 @@ namespace DaisyView.Services;
 /// Generates thumbnails for image files
 /// Visible thumbnails are generated first, then background generation processes the rest
 /// Background generation is abandoned if user changes folders
-/// Thumbnails are cached to disk for faster loading on subsequent visits
 /// </summary>
 public class ThumbnailService : IDisposable
 {
+    private const int MaxConcurrentThumbnailWorkers = 8;
     private readonly LoggingService _loggingService;
     private readonly FitsImageService _fitsImageService;
     private CancellationTokenSource? _backgroundTaskCancellation;
@@ -27,11 +27,6 @@ public class ThumbnailService : IDisposable
     private volatile int _currentThumbnailSize = 200; // Default size - volatile for thread safety
     private bool _disposed = false;
     
-    /// <summary>
-    /// Name of the hidden folder used to cache thumbnails
-    /// </summary>
-    private const string ThumbnailCacheFolderName = ".daisyview_thumbnails";
-
     public ThumbnailService(LoggingService loggingService)
     {
         _loggingService = loggingService;
@@ -52,6 +47,18 @@ public class ThumbnailService : IDisposable
     /// </summary>
     public void GenerateThumbnailsAsync(List<ImageFile> images, int visibleCount)
     {
+        GenerateThumbnailsAsync(images, 0, Math.Max(0, visibleCount - 1));
+    }
+
+    /// <summary>
+    /// Generates thumbnails for all images in the background.
+    /// Images in the visible index range are prioritized first.
+    /// </summary>
+    public void GenerateThumbnailsAsync(List<ImageFile> images, int visibleStartIndex, int visibleEndIndex)
+    {
+        if (images.Count == 0)
+            return;
+
         // Cancel and dispose any existing background task
         _backgroundTaskCancellation?.Cancel();
         _backgroundTaskCancellation?.Dispose();
@@ -59,36 +66,64 @@ public class ThumbnailService : IDisposable
 
         var token = _backgroundTaskCancellation.Token;
 
-        // Process all thumbnails in the background - visible ones first, then the rest
-        var visibleImages = images.Take(visibleCount).ToList();
-        var backgroundImages = images.Skip(visibleCount).ToList();
+        var safeStart = Math.Clamp(visibleStartIndex, 0, images.Count - 1);
+        var safeEnd = Math.Clamp(visibleEndIndex, safeStart, images.Count - 1);
+
+        // Process all thumbnails in the background - viewport images first, then the rest
+        var visibleImages = images
+            .Skip(safeStart)
+            .Take((safeEnd - safeStart) + 1)
+            .ToList();
+
+        var backgroundImages = images
+            .Take(safeStart)
+            .Concat(images.Skip(safeEnd + 1))
+            .ToList();
 
         _ = Task.Run(async () =>
         {
-            // Generate visible thumbnails first (still in background, but prioritized)
-            foreach (var image in visibleImages)
+            try
             {
-                if (token.IsCancellationRequested)
-                    return;
+                // Generate visible thumbnails first using the worker pool.
+                await ProcessThumbnailBatchAsync(visibleImages, token);
 
-                await GenerateThumbnailAsync(image, token);
-            }
-
-            // Generate remaining thumbnails
-            foreach (var image in backgroundImages)
-            {
                 if (token.IsCancellationRequested)
                 {
                     _loggingService.LogTrace("Thumbnail background generation cancelled");
                     return;
                 }
 
-                await GenerateThumbnailAsync(image, token);
-                await Task.Delay(5, token); // Small delay to avoid CPU saturation
-            }
+                // Generate remaining thumbnails with the same worker pool.
+                await ProcessThumbnailBatchAsync(backgroundImages, token);
 
-            _loggingService.LogTrace("Thumbnail background generation completed");
+                _loggingService.LogTrace("Thumbnail background generation completed using {WorkerCount} workers", MaxConcurrentThumbnailWorkers);
+            }
+            catch (OperationCanceledException)
+            {
+                _loggingService.LogTrace("Thumbnail background generation cancelled");
+            }
         }, token);
+    }
+
+    /// <summary>
+    /// Processes a batch of thumbnails using a bounded worker pool.
+    /// </summary>
+    private async Task ProcessThumbnailBatchAsync(List<ImageFile> images, CancellationToken token)
+    {
+        if (images.Count == 0)
+            return;
+
+        await Parallel.ForEachAsync(
+            images,
+            new ParallelOptions
+            {
+                CancellationToken = token,
+                MaxDegreeOfParallelism = MaxConcurrentThumbnailWorkers
+            },
+            async (image, cancellationToken) =>
+            {
+                await GenerateThumbnailAsync(image, cancellationToken);
+            });
     }
 
     /// <summary>
@@ -105,19 +140,6 @@ public class ThumbnailService : IDisposable
             if (imageFile.ThumbnailGenerated)
                 return;
 
-            // Try to load from cache first (on background thread)
-            var cachedData = await Task.Run(() => TryLoadFromCacheData(imageFile.FilePath), token);
-            if (cachedData != null)
-            {
-                lock (LockObject)
-                {
-                    // Set data first, then generated flag to trigger single notification
-                    imageFile.ThumbnailData = cachedData;
-                    imageFile.ThumbnailGenerated = true;
-                }
-                return;
-            }
-
             if (token.IsCancellationRequested)
                 return;
 
@@ -132,9 +154,6 @@ public class ThumbnailService : IDisposable
                     imageFile.ThumbnailData = thumbnailData;
                     imageFile.ThumbnailGenerated = true;
                 }
-
-                // Save to cache on background thread
-                _ = Task.Run(() => SaveToCache(imageFile, thumbnailData), token);
             }
         }
         catch (OperationCanceledException)
@@ -145,38 +164,6 @@ public class ThumbnailService : IDisposable
         {
             _loggingService.LogWarning("Failed to generate thumbnail for {FileName}: {Message}", 
                 imageFile.FileName, ex.Message);
-        }
-    }
-
-    /// <summary>
-    /// Tries to load thumbnail data from cache, returns null if not cached or stale
-    /// </summary>
-    private byte[]? TryLoadFromCacheData(string filePath)
-    {
-        try
-        {
-            var folderPath = Path.GetDirectoryName(filePath) ?? "";
-            var fileName = Path.GetFileNameWithoutExtension(filePath) + ".jpg";
-            var cachePath = Path.Combine(GetCacheFolderPath(folderPath), fileName);
-            
-            if (!File.Exists(cachePath))
-                return null;
-
-            // Check if cache is stale
-            var originalModified = File.GetLastWriteTimeUtc(filePath);
-            var cacheModified = File.GetLastWriteTimeUtc(cachePath);
-            
-            if (originalModified > cacheModified)
-            {
-                try { File.Delete(cachePath); } catch { }
-                return null;
-            }
-
-            return File.ReadAllBytes(cachePath);
-        }
-        catch
-        {
-            return null;
         }
     }
 
@@ -231,57 +218,6 @@ public class ThumbnailService : IDisposable
             _loggingService.LogWarning("Failed to generate thumbnail data for {FileName}: {Message}", 
                 imageFile.FileName, ex.Message);
             return null;
-        }
-    }
-
-    /// <summary>
-    /// Gets the path to the thumbnail cache folder for a given image folder
-    /// </summary>
-    private string GetCacheFolderPath(string imageFolderPath)
-    {
-        return Path.Combine(imageFolderPath, ThumbnailCacheFolderName);
-    }
-
-    /// <summary>
-    /// Gets the cached thumbnail file path for an image
-    /// </summary>
-    private string GetCachedThumbnailPath(string imagePath)
-    {
-        var folderPath = Path.GetDirectoryName(imagePath) ?? "";
-        var fileName = Path.GetFileNameWithoutExtension(imagePath) + ".jpg";
-        return Path.Combine(GetCacheFolderPath(folderPath), fileName);
-    }
-
-    /// <summary>
-    /// Saves a thumbnail to the disk cache
-    /// </summary>
-    private void SaveToCache(ImageFile imageFile, byte[] thumbnailData)
-    {
-        try
-        {
-            var cachePath = GetCachedThumbnailPath(imageFile.FilePath);
-            var cacheFolder = Path.GetDirectoryName(cachePath);
-            
-            if (string.IsNullOrEmpty(cacheFolder))
-                return;
-
-            // Create cache folder if it doesn't exist
-            if (!Directory.Exists(cacheFolder))
-            {
-                var dirInfo = Directory.CreateDirectory(cacheFolder);
-                // Set hidden attribute on the cache folder
-                dirInfo.Attributes |= FileAttributes.Hidden;
-            }
-
-            // Save thumbnail (use JPEG for smaller file size)
-            File.WriteAllBytes(cachePath, thumbnailData);
-            
-            _loggingService.LogTrace("Saved thumbnail to cache for {FileName}", imageFile.FileName);
-        }
-        catch (Exception ex)
-        {
-            _loggingService.LogTrace("Failed to save thumbnail to cache for {FileName}: {Message}", 
-                imageFile.FileName, ex.Message);
         }
     }
 

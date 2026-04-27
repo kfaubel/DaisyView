@@ -491,7 +491,10 @@
                     <RowDefinition Height="*" />
                 </Grid.RowDefinitions>
                 
-                <ScrollViewer Grid.Row="0" Background="{StaticResource BackgroundBrush}">
+                <ScrollViewer Grid.Row="0"
+                              Name="ThumbnailScrollViewer"
+                              Background="{StaticResource BackgroundBrush}"
+                              ScrollChanged="ThumbnailScrollViewer_ScrollChanged">
                     <ItemsControl Name="ThumbnailPanel" 
                                   ItemsSource="{Binding Images}"
                                   Background="{StaticResource BackgroundBrush}"

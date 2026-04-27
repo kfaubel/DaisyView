@@ -5,6 +5,8 @@ using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Media;
+using System.Windows.Threading;
 using DaisyView.Models;
 using DaisyView.Services;
 using DaisyView.ViewModels;
@@ -18,6 +20,7 @@ namespace DaisyView.Views;
 public partial class MainWindow : Window
 {
     private MainWindowViewModel? _viewModel;
+    private readonly DispatcherTimer _thumbnailPriorityTimer;
 
     public MainWindow()
     {
@@ -34,6 +37,12 @@ public partial class MainWindow : Window
 
         // Wire up events
         Loaded += MainWindow_Loaded;
+
+        _thumbnailPriorityTimer = new DispatcherTimer
+        {
+            Interval = TimeSpan.FromMilliseconds(120)
+        };
+        _thumbnailPriorityTimer.Tick += ThumbnailPriorityTimer_Tick;
     }
 
     /// <summary>
@@ -112,10 +121,6 @@ public partial class MainWindow : Window
 
     private void MainWindow_Loaded(object sender, RoutedEventArgs e)
     {
-        // Register handler for Grid elements to capture double-click events
-        EventManager.RegisterClassHandler(typeof(Grid), Control.MouseDoubleClickEvent,
-            new MouseButtonEventHandler(Thumbnail_MouseDoubleClick), handledEventsToo: true);
-
         // Register keyboard handler for F11 to start slideshow
         PreviewKeyDown += MainWindow_PreviewKeyDown;
 
@@ -128,6 +133,8 @@ public partial class MainWindow : Window
             // Set initial size button color
             UpdateSizeButtonColors(_viewModel.ThumbnailSize);
         }
+
+        ScheduleVisibleThumbnailPriorityUpdate();
     }
 
     /// <summary>
@@ -162,6 +169,62 @@ public partial class MainWindow : Window
         {
             ScrollTreeToActiveFolder();
         }
+        else if (e.PropertyName == nameof(MainWindowViewModel.Images)
+            || e.PropertyName == nameof(MainWindowViewModel.ThumbnailSizePixels)
+            || e.PropertyName == nameof(MainWindowViewModel.ThumbnailHeightPixels))
+        {
+            ScheduleVisibleThumbnailPriorityUpdate();
+        }
+    }
+
+    /// <summary>
+    /// Handles thumbnail panel scrolling and reprioritizes visible thumbnail generation.
+    /// </summary>
+    private void ThumbnailScrollViewer_ScrollChanged(object sender, ScrollChangedEventArgs e)
+    {
+        if (_viewModel == null || _viewModel.Images.Count == 0)
+            return;
+
+        if (e.VerticalChange != 0
+            || e.HorizontalChange != 0
+            || e.ExtentHeightChange != 0
+            || e.ExtentWidthChange != 0
+            || e.ViewportHeightChange != 0
+            || e.ViewportWidthChange != 0)
+        {
+            ScheduleVisibleThumbnailPriorityUpdate();
+        }
+    }
+
+    private void ScheduleVisibleThumbnailPriorityUpdate()
+    {
+        _thumbnailPriorityTimer.Stop();
+        _thumbnailPriorityTimer.Start();
+    }
+
+    private void ThumbnailPriorityTimer_Tick(object? sender, EventArgs e)
+    {
+        _thumbnailPriorityTimer.Stop();
+        UpdateVisibleThumbnailPriority();
+    }
+
+    private void UpdateVisibleThumbnailPriority()
+    {
+        if (_viewModel == null || _viewModel.Images.Count == 0 || ThumbnailScrollViewer == null || ThumbnailPanel == null)
+            return;
+
+        var tileWidth = Math.Max(1, _viewModel.ThumbnailSizePixels + 16);
+        var tileHeight = Math.Max(1, _viewModel.ThumbnailHeightPixels + 16);
+        var panelWidth = Math.Max(tileWidth, ThumbnailPanel.ActualWidth);
+        var itemsPerRow = Math.Max(1, (int)(panelWidth / tileWidth));
+
+        var firstVisibleRow = Math.Max(0, (int)(ThumbnailScrollViewer.VerticalOffset / tileHeight));
+        var visibleRowCount = Math.Max(1, (int)Math.Ceiling(ThumbnailScrollViewer.ViewportHeight / tileHeight));
+        const int prefetchRows = 2;
+
+        var startIndex = firstVisibleRow * itemsPerRow;
+        var endIndex = ((firstVisibleRow + visibleRowCount + prefetchRows) * itemsPerRow) - 1;
+        _viewModel.PrioritizeVisibleThumbnails(startIndex, endIndex);
     }
 
     /// <summary>
@@ -274,30 +337,49 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Handles thumbnail selection to set active image
+    /// Handles thumbnail selection and starts slideshow on double-click.
     /// </summary>
     private void Thumbnail_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
-        // Handle Grid element by getting DataContext
-        var dataContext = (sender as FrameworkElement)?.DataContext as ImageFile;
-        if (dataContext != null)
-        {
-            // Clear active state from all images
-            foreach (var img in _viewModel!.Images)
-                img.IsActive = false;
+        if (IsCheckBoxClick(e.OriginalSource as DependencyObject))
+            return;
 
-            // Set this image as active
-            dataContext.IsActive = true;
-            _viewModel.ActiveImage = dataContext;
+        SetActiveThumbnail(sender as FrameworkElement);
+
+        if (e.ClickCount == 2)
+        {
+            _viewModel?.OpenSlideshow();
+            e.Handled = true;
         }
     }
 
-    /// <summary>
-    /// Handles thumbnail double-click to open slideshow
-    /// </summary>
-    private void Thumbnail_MouseDoubleClick(object sender, MouseButtonEventArgs e)
+    private void SetActiveThumbnail(FrameworkElement? thumbnailElement)
     {
-        _viewModel?.OpenSlideshow();
+        if (_viewModel == null)
+            return;
+
+        var image = thumbnailElement?.DataContext as ImageFile;
+        if (image == null)
+            return;
+
+        foreach (var thumbnail in _viewModel.Images)
+            thumbnail.IsActive = false;
+
+        image.IsActive = true;
+        _viewModel.ActiveImage = image;
+    }
+
+    private static bool IsCheckBoxClick(DependencyObject? source)
+    {
+        while (source != null)
+        {
+            if (source is CheckBox)
+                return true;
+
+            source = VisualTreeHelper.GetParent(source);
+        }
+
+        return false;
     }
 
     /// <summary>

@@ -222,8 +222,24 @@ public class SettingsService
     public void ClearRandomOrder(string folderPath)
     {
         _currentSettings.RandomOrderCache.Remove(folderPath);
-        _currentSettings.RandomEnabledFolders.Remove(folderPath);
+    }
+
+    /// <summary>
+    /// Saves the last active image file name for a folder
+    /// </summary>
+    public void SetLastActiveImage(string folderPath, string fileName)
+    {
+        _currentSettings.LastActiveImagePerFolder[folderPath] = fileName;
         SaveSettings();
+    }
+
+    /// <summary>
+    /// Gets the last active image file name for a folder, or null if not recorded
+    /// </summary>
+    public string? GetLastActiveImage(string folderPath)
+    {
+        _currentSettings.LastActiveImagePerFolder.TryGetValue(folderPath, out var fileName);
+        return fileName;
     }
 
     /// <summary>
