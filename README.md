@@ -74,6 +74,18 @@ The script will:
 3. Create and push a `vX.Y.Z` tag
 4. GitHub Actions builds and publishes the release automatically
 
+## Manually publish a new version
+
+Update the version number in the project files in AstroImages.Wpf.cproj
+
+```powershell
+# Apply a tag starting with a 'v'
+git tag v1.0.0
+
+# Push the tag to the remote repository to trigger a release
+git push origin v1.0.0
+```
+
 ## Keyboard Shortcuts
 
 ### Main Window
