@@ -184,6 +184,8 @@
                                         <Border Grid.Column="1" Grid.Row="0"
                                                Name="Bd"
                                                Background="{TemplateBinding Background}"
+                                                 BorderBrush="Transparent"
+                                                 BorderThickness="1"
                                                Padding="{TemplateBinding Padding}"
                                                SnapsToDevicePixels="True">
                                             <ContentPresenter x:Name="PART_Header"
@@ -209,6 +211,10 @@
                                         <Trigger Property="IsSelected" Value="False">
                                             <Setter TargetName="Bd" Property="Background" Value="Transparent" />
                                         </Trigger>
+                                        <DataTrigger Binding="{Binding IsMergedSelected}" Value="True">
+                                            <Setter TargetName="Bd" Property="BorderBrush" Value="#FFD060" />
+                                            <Setter TargetName="Bd" Property="BorderThickness" Value="1" />
+                                        </DataTrigger>
                                     </ControlTemplate.Triggers>
                                 </ControlTemplate>
                             </Setter.Value>
@@ -226,7 +232,41 @@
                 </TreeView.Resources>
                 <TreeView.ItemTemplate>
                     <HierarchicalDataTemplate ItemsSource="{Binding Children}">
-                        <TextBlock Text="{Binding Name}" FontSize="13" Foreground="{Binding RelativeSource={RelativeSource AncestorType=TreeViewItem}, Path=Foreground}" />
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="●"
+                                       FontSize="12"
+                                       FontWeight="Bold"
+                                       Foreground="#FFD060"
+                                       Margin="0,0,6,0"
+                                       VerticalAlignment="Center"
+                                       Visibility="Collapsed">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Visibility" Value="Collapsed" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsMergedSelected}" Value="True">
+                                                <Setter Property="Visibility" Value="Visible" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                            <TextBlock Text="{Binding Name}"
+                                       FontSize="13"
+                                       Foreground="{Binding RelativeSource={RelativeSource AncestorType=TreeViewItem}, Path=Foreground}">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="FontWeight" Value="Normal" />
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsMergedSelected}" Value="True">
+                                                <Setter Property="FontWeight" Value="SemiBold" />
+                                                <Setter Property="Foreground" Value="#FFD060" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                        </StackPanel>
                     </HierarchicalDataTemplate>
                 </TreeView.ItemTemplate>
             </TreeView>
@@ -547,6 +587,24 @@
                     BorderThickness="0,1,0,0"
                     BorderBrush="{StaticResource BorderBrush}">
                 <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="MERGED VIEW ACTIVE"
+                               Foreground="#FFD060"
+                               FontSize="11"
+                               FontWeight="SemiBold"
+                               Margin="0,0,10,0"
+                               VerticalAlignment="Center"
+                               Visibility="Collapsed">
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="Visibility" Value="Collapsed" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsMergedFolderView}" Value="True">
+                                        <Setter Property="Visibility" Value="Visible" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
                     <TextBlock Text="{Binding Images.Count, StringFormat='Showing {0} thumbnail(s)'}"
                                Foreground="{StaticResource ForegroundBrush}"
                                FontSize="11"

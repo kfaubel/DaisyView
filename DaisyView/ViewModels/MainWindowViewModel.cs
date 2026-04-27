@@ -57,6 +57,8 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
     private int _lastPriorityStartIndex = -1;
     private int _lastPriorityEndIndex = -1;
     private string? _currentFolderPath;
+    private List<string> _selectedFolderPaths = new();
+    private bool _isMergedFolderView;
 
     // Commands
     private ICommand? _navigateToFolderCommand;
@@ -220,10 +222,23 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
         set { _isNavigating = value; }
     }
 
+    public bool IsMergedFolderView
+    {
+        get => _isMergedFolderView;
+        private set
+        {
+            if (_isMergedFolderView != value)
+            {
+                _isMergedFolderView = value;
+                OnPropertyChanged(nameof(IsMergedFolderView));
+            }
+        }
+    }
+
     // Command Properties
     public ICommand NavigateToFolderCommand => _navigateToFolderCommand ??= new RelayCommand<string>(NavigateToFolder);
     public ICommand ToggleFavoriteCommand => _toggleFavoriteCommand ??= new RelayCommand(_ => ToggleFavorite(), _ => ActiveFolder != null);
-    public ICommand ToggleRandomCommand => _toggleRandomCommand ??= new RelayCommand(_ => ToggleRandom(), _ => ActiveFolder != null && Images.Count > 0);
+    public ICommand ToggleRandomCommand => _toggleRandomCommand ??= new RelayCommand(_ => ToggleRandom(), _ => (ActiveFolder != null || IsMergedFolderView) && Images.Count > 0);
     public ICommand MarkImageCommand => _markImageCommand ??= new RelayCommand<ImageFile>(MarkImage, img => img != null);
     public ICommand OpenSlideshowCommand => _openSlideshowCommand ??= new RelayCommand(_ => OpenSlideshow(), _ => Images.Count > 0);
     public ICommand ToggleAudioCommand => _toggleAudioCommand ??= new RelayCommand(_ => ToggleAudio());
@@ -259,8 +274,24 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
     private void OnFileSystemChanged(object? sender, System.IO.FileSystemEventArgs e)
     {
         _loggingService.LogTrace("File system change detected: {ChangeType} - {Path}", e.ChangeType, e.FullPath);
-        
+
         // Refresh the current folder view on the UI thread
+        if (IsMergedFolderView)
+        {
+            System.Windows.Application.Current?.Dispatcher.BeginInvoke(() =>
+            {
+                var changedPath = e.FullPath;
+                var isFromSelectedFolder = _selectedFolderPaths.Any(folder =>
+                    changedPath.StartsWith(folder, StringComparison.OrdinalIgnoreCase));
+
+                if (isFromSelectedFolder)
+                {
+                    NavigateToFolders(_selectedFolderPaths);
+                }
+            });
+            return;
+        }
+
         if (ActiveFolder != null)
         {
             System.Windows.Application.Current?.Dispatcher.BeginInvoke(() =>
@@ -268,13 +299,13 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
                 // Check if the change was a directory change - if so, refresh the tree node's children
                 var changedPath = e.FullPath;
                 var parentPath = System.IO.Path.GetDirectoryName(changedPath);
-                
+
                 if (parentPath != null && string.Equals(parentPath, ActiveFolder.FullPath, StringComparison.OrdinalIgnoreCase))
                 {
                     // The change happened in the current folder - refresh both images and subfolders
                     RefreshCurrentFolderSubfolders();
                 }
-                
+
                 NavigateToFolder(ActiveFolder.FullPath);
             });
         }
@@ -416,6 +447,17 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
     }
 
     /// <summary>
+    /// Navigates to a merged view of multiple folders.
+    /// </summary>
+    public void NavigateToFolders(List<string> folderPaths)
+    {
+        if (folderPaths == null || folderPaths.Count == 0)
+            return;
+
+        _ = NavigateToFoldersAsync(folderPaths);
+    }
+
+    /// <summary>
     /// Asynchronously navigates to a folder and loads images without blocking the UI
     /// </summary>
     private async Task NavigateToFolderAsync(string? folderPath)
@@ -436,6 +478,9 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
             }
 
             _loggingService.LogUserAction("Navigate to folder", folderPath);
+
+            IsMergedFolderView = false;
+            _selectedFolderPaths.Clear();
 
             // Cancel thumbnail generation for the previous folder
             _thumbnailService.CancelBackgroundGeneration();
@@ -511,6 +556,84 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
         catch (Exception ex)
         {
             _loggingService.LogError("NavigateToFolderAsync exception", ex);
+        }
+        finally
+        {
+            _isNavigating = false;
+        }
+    }
+
+    /// <summary>
+    /// Asynchronously loads and merges media files from multiple folders.
+    /// </summary>
+    private async Task NavigateToFoldersAsync(List<string> folderPaths)
+    {
+        _loggingService.LogTrace("NavigateToFoldersAsync START for {Count} folders", folderPaths.Count);
+
+        var validFolders = folderPaths
+            .Where(path => !string.IsNullOrWhiteSpace(path) && _fileSystemService.PathExists(path))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (validFolders.Count == 0)
+            return;
+
+        if (validFolders.Count == 1)
+        {
+            await NavigateToFolderAsync(validFolders[0]);
+            return;
+        }
+
+        _isNavigating = true;
+
+        try
+        {
+            _thumbnailService.CancelBackgroundGeneration();
+
+            var imageTasks = validFolders.Select(_fileSystemService.GetImageFilesAsync).ToList();
+            var folderResults = await Task.WhenAll(imageTasks);
+
+            var mergedImages = folderResults
+                .SelectMany(images => images)
+                .GroupBy(image => image.FilePath, StringComparer.OrdinalIgnoreCase)
+                .Select(group => group.First())
+                .OrderBy(image => image.DisplayName, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            Images = new ObservableCollection<ImageFile>(mergedImages);
+            _currentFolderPath = null;
+            _selectedFolderPaths = validFolders;
+            IsMergedFolderView = true;
+            RandomEnabled = false;
+            ActiveFolder = null;
+            IsFavorite = false;
+
+            if (mergedImages.Count > 0)
+            {
+                mergedImages[0].IsActive = true;
+                ActiveImage = mergedImages[0];
+            }
+            else
+            {
+                ActiveImage = null;
+            }
+
+            foreach (var folder in validFolders)
+            {
+                _fileSystemService.WatchFolder(folder);
+            }
+
+            var visibleCount = AppConstants.ThumbnailSizes.DefaultVisibleCount;
+            _thumbnailService.GenerateThumbnailsAsync(mergedImages, visibleCount);
+
+            _lastPriorityStartIndex = -1;
+            _lastPriorityEndIndex = -1;
+            StatusMessage = $"Merged {validFolders.Count} folders ({mergedImages.Count} media files). Ctrl+click folders to add/remove.";
+        }
+        catch (Exception ex)
+        {
+            _loggingService.LogError("NavigateToFoldersAsync exception", ex);
         }
         finally
         {
@@ -678,10 +801,19 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
     }
 
     /// <summary>
-    /// Toggles random sort for the active folder
+    /// Toggles random sort for single-folder and merged-folder views.
     /// </summary>
     public void ToggleRandom()
     {
+        if (Images.Count == 0)
+            return;
+
+        if (IsMergedFolderView)
+        {
+            ToggleMergedRandom();
+            return;
+        }
+
         if (ActiveFolder == null)
             return;
 
@@ -754,6 +886,58 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
         }
     }
 
+    private void ToggleMergedRandom()
+    {
+        try
+        {
+            RandomEnabled = !RandomEnabled;
+
+            if (RandomEnabled)
+            {
+                var pathOrder = Images.Select(i => i.FilePath).ToList();
+                for (int i = pathOrder.Count - 1; i > 0; i--)
+                {
+                    int randomIndex = Random.Shared.Next(i + 1);
+                    var temp = pathOrder[i];
+                    pathOrder[i] = pathOrder[randomIndex];
+                    pathOrder[randomIndex] = temp;
+                }
+
+                ReorderImagesByPath(pathOrder);
+                StatusMessage = $"Merged random order enabled ({Images.Count} media files).";
+            }
+            else
+            {
+                var orderedImages = Images
+                    .OrderBy(i => i.DisplayName, StringComparer.OrdinalIgnoreCase)
+                    .ThenBy(i => i.FilePath, StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+
+                Images = new ObservableCollection<ImageFile>(orderedImages);
+                if (orderedImages.Count > 0)
+                {
+                    foreach (var image in orderedImages)
+                    {
+                        image.IsActive = false;
+                    }
+
+                    orderedImages[0].IsActive = true;
+                    ActiveImage = orderedImages[0];
+                }
+
+                StatusMessage = $"Merged random order disabled ({Images.Count} media files).";
+            }
+
+            var visibleCount = AppConstants.ThumbnailSizes.DefaultVisibleCount;
+            _thumbnailService.GenerateThumbnailsAsync(Images.ToList(), visibleCount);
+            _lastPriorityStartIndex = -1;
+            _lastPriorityEndIndex = -1;
+        }
+        catch (Exception ex)
+        {
+            _loggingService.LogError("Failed to toggle merged random sort", ex);
+        }
+    }
     /// <summary>
     /// Toggles audio playback during slideshow mode
     /// </summary>
@@ -831,6 +1015,44 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
             Images[0].IsActive = true;
             ActiveImage = Images[0];
             _loggingService.LogTrace("Set first image as active: {FileName}", Images[0].FileName);
+        }
+    }
+
+    /// <summary>
+    /// Reorders images based on a provided list of file paths.
+    /// </summary>
+    private void ReorderImagesByPath(List<string> filePathOrder)
+    {
+        var imageMap = Images.ToDictionary(i => i.FilePath, StringComparer.OrdinalIgnoreCase);
+        var reorderedImages = new ObservableCollection<ImageFile>();
+
+        foreach (var filePath in filePathOrder)
+        {
+            if (imageMap.TryGetValue(filePath, out var image))
+            {
+                reorderedImages.Add(image);
+            }
+        }
+
+        foreach (var image in Images)
+        {
+            if (!reorderedImages.Contains(image))
+            {
+                reorderedImages.Add(image);
+            }
+        }
+
+        Images = reorderedImages;
+
+        if (Images.Count > 0)
+        {
+            foreach (var img in Images)
+            {
+                img.IsActive = false;
+            }
+
+            Images[0].IsActive = true;
+            ActiveImage = Images[0];
         }
     }
 

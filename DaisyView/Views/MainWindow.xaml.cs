@@ -21,6 +21,8 @@ public partial class MainWindow : Window
 {
     private MainWindowViewModel? _viewModel;
     private readonly DispatcherTimer _thumbnailPriorityTimer;
+    private readonly HashSet<string> _mergedFolderSelection = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<TreeNode> _mergedFolderNodes = new();
 
     public MainWindow()
     {
@@ -318,11 +320,72 @@ public partial class MainWindow : Window
         if (_viewModel?.IsNavigating == true)
             return;
 
+        var viewModel = _viewModel;
+        if (viewModel == null)
+            return;
+
         if (e.NewValue is TreeNode node)
         {
-            _viewModel?.NavigateToFolder(node.FullPath);
+            var ctrlPressed = (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control;
+            if (ctrlPressed)
+            {
+                PromoteAnchorFolderIntoMergedSelection(viewModel, node);
+
+                if (_mergedFolderSelection.Contains(node.FullPath))
+                {
+                    _mergedFolderSelection.Remove(node.FullPath);
+                    node.IsMergedSelected = false;
+                    _mergedFolderNodes.Remove(node);
+                }
+                else
+                {
+                    _mergedFolderSelection.Add(node.FullPath);
+                    node.IsMergedSelected = true;
+                    _mergedFolderNodes.Add(node);
+                }
+
+                RefreshMergedFolderIndicators(viewModel);
+
+                if (_mergedFolderSelection.Count <= 1)
+                {
+                    // If Ctrl selection has one folder left, keep behavior equivalent to normal single-folder view.
+                    var singlePath = _mergedFolderSelection.Count == 1 ? _mergedFolderSelection.First() : node.FullPath;
+                    viewModel.NavigateToFolder(singlePath);
+                }
+                else
+                {
+                    viewModel.NavigateToFolders(_mergedFolderSelection.OrderBy(path => path, StringComparer.OrdinalIgnoreCase).ToList());
+                }
+
+                e.Handled = true;
+                return;
+            }
+
+            ClearMergedFolderSelection();
+            viewModel.NavigateToFolder(node.FullPath);
             // Note: ActiveFolder is set via the TwoWay binding when IsActive is set
         }
+    }
+
+    /// <summary>
+    /// When Ctrl+click starts from a normal single selection, include that selected folder
+    /// as the anchor in the merged selection.
+    /// </summary>
+    private void PromoteAnchorFolderIntoMergedSelection(MainWindowViewModel viewModel, TreeNode clickedNode)
+    {
+        if (_mergedFolderSelection.Count > 0)
+            return;
+
+        var anchorNode = viewModel.ActiveFolder;
+        if (anchorNode == null)
+            return;
+
+        if (string.Equals(anchorNode.FullPath, clickedNode.FullPath, StringComparison.OrdinalIgnoreCase))
+            return;
+
+        _mergedFolderSelection.Add(anchorNode.FullPath);
+        anchorNode.IsMergedSelected = true;
+        _mergedFolderNodes.Add(anchorNode);
     }
 
     /// <summary>
@@ -332,7 +395,54 @@ public partial class MainWindow : Window
     {
         if (sender is ListBox listBox && listBox.SelectedItem is string folderPath)
         {
+            ClearMergedFolderSelection();
             _viewModel?.NavigateToFolder(folderPath);
+        }
+    }
+
+    private void ClearMergedFolderSelection()
+    {
+        foreach (var mergedNode in _mergedFolderNodes)
+        {
+            mergedNode.IsMergedSelected = false;
+        }
+
+        _mergedFolderNodes.Clear();
+        _mergedFolderSelection.Clear();
+    }
+
+    /// <summary>
+    /// Rebuilds merged folder indicator state from selected paths so visuals remain in sync.
+    /// </summary>
+    private void RefreshMergedFolderIndicators(MainWindowViewModel viewModel)
+    {
+        foreach (var mergedNode in _mergedFolderNodes)
+        {
+            mergedNode.IsMergedSelected = false;
+        }
+
+        _mergedFolderNodes.Clear();
+
+        if (_mergedFolderSelection.Count == 0)
+            return;
+
+        foreach (var rootNode in viewModel.RootNodes)
+        {
+            ApplyMergedIndicatorRecursive(rootNode);
+        }
+    }
+
+    private void ApplyMergedIndicatorRecursive(TreeNode node)
+    {
+        if (_mergedFolderSelection.Contains(node.FullPath))
+        {
+            node.IsMergedSelected = true;
+            _mergedFolderNodes.Add(node);
+        }
+
+        foreach (var child in node.Children)
+        {
+            ApplyMergedIndicatorRecursive(child);
         }
     }
 

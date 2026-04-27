@@ -64,6 +64,23 @@ public class TreeNode : INotifyPropertyChanged
         }
     }
 
+    /// <summary>
+    /// Whether this node is part of the current Ctrl+click merged-folder selection.
+    /// </summary>
+    private bool _isMergedSelected;
+    public bool IsMergedSelected
+    {
+        get => _isMergedSelected;
+        set
+        {
+            if (_isMergedSelected != value)
+            {
+                _isMergedSelected = value;
+                OnPropertyChanged(nameof(IsMergedSelected));
+            }
+        }
+    }
+
     public event PropertyChangedEventHandler? PropertyChanged;
 
     protected void OnPropertyChanged(string propertyName)

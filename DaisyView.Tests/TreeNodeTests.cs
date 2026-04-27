@@ -39,6 +39,7 @@ public class TreeNodeTests
         // Assert
         Assert.False(node.IsExpanded);
         Assert.False(node.IsActive);
+        Assert.False(node.IsMergedSelected);
         Assert.Empty(node.Children);
         Assert.Null(node.Parent);
     }
@@ -206,6 +207,57 @@ public class TreeNodeTests
 
         // Act
         node.IsActive = true; // Same value
+
+        // Assert
+        Assert.Equal(0, propertyChangedCount);
+    }
+
+    #endregion
+
+    #region IsMergedSelected Property Tests
+
+    [Fact]
+    public void TreeNode_CanBeMergedSelected()
+    {
+        // Arrange
+        var node = new TreeNode { Name = "TestFolder", FullPath = "C:\\TestFolder" };
+
+        // Act
+        node.IsMergedSelected = true;
+
+        // Assert
+        Assert.True(node.IsMergedSelected);
+    }
+
+    [Fact]
+    public void TreeNode_IsMergedSelected_RaisesPropertyChanged()
+    {
+        // Arrange
+        var node = new TreeNode { Name = "Test", FullPath = "C:\\Test" };
+        var propertyChangedRaised = false;
+        node.PropertyChanged += (s, e) =>
+        {
+            if (e.PropertyName == nameof(TreeNode.IsMergedSelected))
+                propertyChangedRaised = true;
+        };
+
+        // Act
+        node.IsMergedSelected = true;
+
+        // Assert
+        Assert.True(propertyChangedRaised);
+    }
+
+    [Fact]
+    public void TreeNode_IsMergedSelected_DoesNotRaisePropertyChanged_WhenValueUnchanged()
+    {
+        // Arrange
+        var node = new TreeNode { Name = "Test", FullPath = "C:\\Test", IsMergedSelected = true };
+        var propertyChangedCount = 0;
+        node.PropertyChanged += (s, e) => propertyChangedCount++;
+
+        // Act
+        node.IsMergedSelected = true; // Same value
 
         // Assert
         Assert.Equal(0, propertyChangedCount);
