@@ -22,7 +22,6 @@ public class MediaTypeHelperTests
     [InlineData("photo.fit", true)]
     [InlineData("video.gif", true)]
     [InlineData("video.mp4", true)]
-    [InlineData("video.webm", true)]
     [InlineData("video.avi", true)]
     [InlineData("video.mpeg", true)]
     [InlineData("video.mpg", true)]
@@ -73,7 +72,6 @@ public class MediaTypeHelperTests
     [Theory]
     [InlineData("animation.gif")]
     [InlineData("video.mp4")]
-    [InlineData("video.webm")]
     public void IsStaticImage_ReturnsFalse_ForVideoExtensions(string fileName)
     {
         Assert.False(MediaTypeHelper.IsStaticImage(fileName));
@@ -84,9 +82,7 @@ public class MediaTypeHelperTests
     #region IsVideoFile Tests
 
     [Theory]
-    [InlineData("video.gif", true)]
     [InlineData("video.mp4", true)]
-    [InlineData("video.webm", true)]
     [InlineData("video.avi", true)]
     [InlineData("video.mpeg", true)]
     [InlineData("video.mpg", true)]
@@ -96,6 +92,7 @@ public class MediaTypeHelperTests
     }
 
     [Theory]
+    [InlineData("animation.gif")]
     [InlineData("photo.jpg")]
     [InlineData("photo.png")]
     [InlineData("photo.bmp")]
@@ -140,33 +137,9 @@ public class MediaTypeHelperTests
 
     [Theory]
     [InlineData("video.avi")]
-    [InlineData("video.webm")]
     public void IsMp4_ReturnsFalse_ForNonMp4Files(string fileName)
     {
         Assert.False(MediaTypeHelper.IsMp4(fileName));
-    }
-
-    #endregion
-
-    #region NeedsConversion Tests
-
-    [Theory]
-    [InlineData("video.webm", true)]
-    [InlineData("video.avi", true)]
-    [InlineData("video.mpeg", true)]
-    [InlineData("video.mpg", true)]
-    public void NeedsConversion_ReturnsTrue_ForConvertibleFormats(string fileName, bool expected)
-    {
-        Assert.Equal(expected, MediaTypeHelper.NeedsConversion(fileName));
-    }
-
-    [Theory]
-    [InlineData("video.mp4")]
-    [InlineData("video.gif")]
-    [InlineData("photo.jpg")]
-    public void NeedsConversion_ReturnsFalse_ForNativeFormats(string fileName)
-    {
-        Assert.False(MediaTypeHelper.NeedsConversion(fileName));
     }
 
     #endregion
@@ -181,7 +154,6 @@ public class MediaTypeHelperTests
         Assert.Contains(".png", MediaTypeHelper.AllSupportedExtensions);
         Assert.Contains(".gif", MediaTypeHelper.AllSupportedExtensions);
         Assert.Contains(".mp4", MediaTypeHelper.AllSupportedExtensions);
-        Assert.Contains(".webm", MediaTypeHelper.AllSupportedExtensions);
         Assert.Contains(".fits", MediaTypeHelper.AllSupportedExtensions);
         Assert.Contains(".fit", MediaTypeHelper.AllSupportedExtensions);
     }
@@ -189,8 +161,8 @@ public class MediaTypeHelperTests
     [Fact]
     public void AllSupportedExtensions_HasExpectedCount()
     {
-        // Should have 15 extensions based on current implementation (includes FITS)
-        Assert.Equal(15, MediaTypeHelper.AllSupportedExtensions.Length);
+        // 10 image extensions + 4 video extensions = 14
+        Assert.Equal(14, MediaTypeHelper.AllSupportedExtensions.Length);
     }
 
     #endregion

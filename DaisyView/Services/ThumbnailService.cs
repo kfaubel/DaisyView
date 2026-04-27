@@ -5,7 +5,6 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Media.Imaging;
-using FFMpegCore;
 using DaisyView.Constants;
 using DaisyView.Helpers;
 using DaisyView.Models;
@@ -179,11 +178,7 @@ public class ThumbnailService : IDisposable
 
             if (imageFile.IsVideo)
             {
-                bitmapSource = ExtractVideoFrameThumbnail(imageFile.FilePath, thumbnailSize);
-                if (bitmapSource == null)
-                {
-                    bitmapSource = CreateVideoPlaceholder(thumbnailSize);
-                }
+                bitmapSource = CreateVideoPlaceholder(thumbnailSize);
             }
             else if (MediaTypeHelper.IsFitsFile(imageFile.FilePath))
             {
@@ -270,70 +265,6 @@ public class ThumbnailService : IDisposable
         catch
         {
             // If even placeholder creation fails, return null
-            return null;
-        }
-    }
-
-    /// <summary>
-    /// Extracts the first frame of a video file as a thumbnail
-    /// </summary>
-    private BitmapImage? ExtractVideoFrameThumbnail(string videoPath, int thumbnailSize)
-    {
-        try
-        {
-            var tempImagePath = Path.Combine(Path.GetTempPath(), $"frame_{Path.GetRandomFileName()}.png");
-
-            try
-            {
-                // Use FFmpeg to extract first frame
-                FFMpegArguments
-                    .FromFileInput(videoPath)
-                    .OutputToFile(tempImagePath, true, options => options
-                        .WithFrameOutputCount(1)
-                        .Seek(TimeSpan.FromSeconds(0)))
-                    .ProcessSynchronously();
-
-                if (File.Exists(tempImagePath))
-                {
-                    // Read file into memory before deleting it
-                    byte[] imageData = File.ReadAllBytes(tempImagePath);
-                    
-                    var bitmap = new BitmapImage();
-                    bitmap.BeginInit();
-                    bitmap.StreamSource = new MemoryStream(imageData);
-                    bitmap.DecodePixelWidth = thumbnailSize;
-                    bitmap.CacheOption = BitmapCacheOption.OnLoad;
-                    bitmap.EndInit();
-                    bitmap.Freeze();
-
-                    return bitmap;
-                }
-                else
-                {
-                    _loggingService.LogWarning("FFmpeg failed to extract frame from {VideoPath}: output file not created", videoPath);
-                }
-            }
-            finally
-            {
-                // Clean up temp file
-                if (File.Exists(tempImagePath))
-                {
-                    try
-                    {
-                        File.Delete(tempImagePath);
-                    }
-                    catch
-                    {
-                        // Ignore cleanup errors
-                    }
-                }
-            }
-
-            return null;
-        }
-        catch (Exception ex)
-        {
-            _loggingService.LogWarning("Failed to extract video frame thumbnail from {VideoPath}: {Message}", videoPath, ex.Message);
             return null;
         }
     }

@@ -23,19 +23,17 @@ public partial class SlideshowWindow : Window
     private int _currentImageIndex;
         private DispatcherTimer? _videoLoopTimer;
         private DispatcherTimer? _cursorHideTimer;
-        private VideoConversionService? _videoConversionService;
         private FitsImageService? _fitsImageService;
         private bool _isCursorHidden = false;
         private bool _audioEnabled = true;
         private Point _lastMousePosition = new();
 
-        public SlideshowWindow(List<ImageFile> images, int activeImageIndex = 0, VideoConversionService? videoConversionService = null, bool audioEnabled = true, FitsImageService? fitsImageService = null)
+        public SlideshowWindow(List<ImageFile> images, int activeImageIndex = 0, bool audioEnabled = true, FitsImageService? fitsImageService = null)
         {
             InitializeComponent();
 
             _images = images;
             _currentImageIndex = Math.Max(0, activeImageIndex);
-            _videoConversionService = videoConversionService;
             _fitsImageService = fitsImageService;
             _audioEnabled = audioEnabled;
             // Setup video looping timer
@@ -54,6 +52,7 @@ public partial class SlideshowWindow : Window
 
             // Wire up MediaElement error handling
             VideoDisplay.MediaFailed += VideoDisplay_MediaFailed;
+            VideoDisplay.MediaEnded += VideoDisplay_MediaEnded;
 
             // Display first image
             DisplayCurrentImage();
@@ -101,6 +100,22 @@ public partial class SlideshowWindow : Window
             {
                 FileNameDisplay.Text = $"Playback error: {ex.Message}";
                 FileNameDisplay.Foreground = System.Windows.Media.Brushes.Yellow;
+            }
+        }
+
+        /// <summary>
+        /// Handles end of media playback and restarts from the beginning.
+        /// </summary>
+        private void VideoDisplay_MediaEnded(object? sender, RoutedEventArgs e)
+        {
+            try
+            {
+                VideoDisplay.Position = TimeSpan.Zero;
+                VideoDisplay.Play();
+            }
+            catch
+            {
+                // Ignore transient playback state issues.
             }
         }
 
@@ -166,103 +181,11 @@ public partial class SlideshowWindow : Window
         }
 
         /// <summary>
-        /// Checks if a video format requires conversion to MP4
-        /// </summary>
-        private static bool NeedsConversion(string filePath)
-        {
-            return MediaTypeHelper.NeedsConversion(filePath);
-        }
-
-        /// <summary>
-        /// Handles video file display, including cached and non-cached files
+        /// Handles video file display
         /// </summary>
         private void HandleVideoDisplay(ImageFile currentImage)
         {
-            if (NeedsConversion(currentImage.FilePath))
-            {
-                var playbackPath = GetCachedVideoPath(currentImage);
-                
-                if (!string.IsNullOrEmpty(playbackPath) && System.IO.File.Exists(playbackPath))
-                {
-                    PlayVideo(playbackPath);
-                }
-                else
-                {
-                    // No cache available, start conversion
-                    DisplayVideoNotSupported(currentImage);
-                    _ = ConvertAndPlayVideoAsync(currentImage);
-                }
-            }
-            else
-            {
-                // MP4 and GIF can play directly
-                PlayVideo(currentImage.FilePath);
-            }
-        }
-
-        /// <summary>
-        /// Attempts to get a cached video path for formats requiring conversion
-        /// </summary>
-        private string? GetCachedVideoPath(ImageFile currentImage)
-        {
-            // First check if ConvertedVideoPath is already set
-            if (!string.IsNullOrEmpty(currentImage.ConvertedVideoPath) && System.IO.File.Exists(currentImage.ConvertedVideoPath))
-            {
-                return currentImage.ConvertedVideoPath;
-            }
-
-            if (_videoConversionService == null)
-                return null;
-
-            // Check if cache file exists by looking it up
-            var cacheFilePath = _videoConversionService.GetConvertedFilePath(currentImage.FilePath);
-            if (cacheFilePath != null && System.IO.File.Exists(cacheFilePath))
-            {
-                var playbackPath = _videoConversionService.GetPlaybackPath(cacheFilePath);
-                if (!string.IsNullOrEmpty(playbackPath) && System.IO.File.Exists(playbackPath))
-                {
-                    currentImage.ConvertedVideoPath = playbackPath;
-                    return playbackPath;
-                }
-            }
-
-            // Try fallback: search cache directory for matching files
-            return TryFindCacheFileFallback(currentImage);
-        }
-
-        /// <summary>
-        /// Fallback method to find cache files when primary lookup fails
-        /// </summary>
-        private string? TryFindCacheFileFallback(ImageFile currentImage)
-        {
-            try
-            {
-                var cacheDir = System.IO.Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                    "DaisyView", "VideoCache");
-
-                if (!System.IO.Directory.Exists(cacheDir))
-                    return null;
-
-                var baseFileName = System.IO.Path.GetFileNameWithoutExtension(currentImage.FilePath);
-                var cachedFiles = System.IO.Directory.GetFiles(cacheDir, $"{baseFileName}_*.daicache");
-
-                if (cachedFiles.Length > 0 && _videoConversionService != null)
-                {
-                    var playbackPath = _videoConversionService.GetPlaybackPath(cachedFiles[0]);
-                    if (!string.IsNullOrEmpty(playbackPath) && System.IO.File.Exists(playbackPath))
-                    {
-                        currentImage.ConvertedVideoPath = playbackPath;
-                        return playbackPath;
-                    }
-                }
-            }
-            catch
-            {
-                // Silently ignore fallback errors
-            }
-
-            return null;
+            PlayVideo(currentImage.FilePath);
         }
 
         /// <summary>
@@ -373,106 +296,6 @@ public partial class SlideshowWindow : Window
             {
                 FileNameDisplay.Text = $"Error playing video: {ex.Message}";
                 FileNameDisplay.Foreground = System.Windows.Media.Brushes.Yellow;
-            }
-        }
-
-        /// <summary>
-        /// Displays video playback status overlay with thumbnail fallback
-        /// </summary>
-        private void DisplayVideoNotSupported(ImageFile currentImage, VideoConversionStatus status = VideoConversionStatus.Converting)
-        {
-            _videoLoopTimer?.Stop();
-            VideoDisplay.Stop();
-            VideoDisplay.Source = null;
-            
-            // Display the thumbnail as a fallback
-            if (currentImage.ThumbnailData != null && currentImage.ThumbnailData.Length > 0)
-            {
-                var bitmap = new System.Windows.Media.Imaging.BitmapImage();
-                bitmap.BeginInit();
-                bitmap.StreamSource = new System.IO.MemoryStream(currentImage.ThumbnailData);
-                bitmap.CacheOption = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
-                bitmap.EndInit();
-                bitmap.Freeze();
-
-                ImageDisplay.Source = bitmap;
-            }
-            else
-            {
-                ImageDisplay.Source = null;
-            }
-
-            // Update overlay message based on status
-            switch (status)
-            {
-                case VideoConversionStatus.Converting:
-                    OverlayIconText.Text = "⏳";
-                    OverlayTitleText.Text = "Converting video...";
-                    OverlaySubtitleText.Text = "Please wait, converting WebM to MP4";
-                    break;
-                case VideoConversionStatus.Failed:
-                    OverlayIconText.Text = "❌";
-                    OverlayTitleText.Text = "Video playback not supported";
-                    OverlaySubtitleText.Text = "WebM format is not supported";
-                    break;
-            }
-
-            // Show the overlay message
-            ImageDisplay.Visibility = Visibility.Visible;
-            VideoDisplay.Visibility = Visibility.Collapsed;
-            VideoNotSupportedOverlay.Visibility = Visibility.Visible;
-        }
-
-        /// <summary>
-        /// Converts a WebM video to MP4 asynchronously and plays it when ready
-        /// </summary>
-        private async Task ConvertAndPlayVideoAsync(ImageFile currentImage)
-        {
-            if (_videoConversionService == null || string.IsNullOrEmpty(currentImage.FilePath))
-                return;
-
-            try
-            {
-                var cachedFilePath = await _videoConversionService.ConvertWebmToMp4Async(currentImage.FilePath);
-                
-                // Only proceed if we're still viewing the same image
-                if (_currentImageIndex >= _images.Count || _images[_currentImageIndex] != currentImage)
-                    return;
-
-                if (!string.IsNullOrEmpty(cachedFilePath) && System.IO.File.Exists(cachedFilePath))
-                {
-                    // Update the image object with the converted cache path for future use
-                    currentImage.ConvertedVideoPath = cachedFilePath;
-                    
-                    // Get temporary playback path (creates temp .mp4 from .daicache if needed)
-                    var playbackPath = _videoConversionService.GetPlaybackPath(cachedFilePath);
-                    
-                    if (string.IsNullOrEmpty(playbackPath))
-                    {
-                        Dispatcher.Invoke(() => DisplayVideoNotSupported(currentImage, VideoConversionStatus.Failed));
-                        return;
-                    }
-                    
-                    // Invoke on UI thread to update display
-                    Dispatcher.Invoke(() => PlayVideo(playbackPath));
-                }
-                else
-                {
-                    // Conversion failed, show error
-                    Dispatcher.Invoke(() => DisplayVideoNotSupported(currentImage, VideoConversionStatus.Failed));
-                }
-            }
-            catch (Exception ex)
-            {
-                // Show conversion error on UI thread
-                if (_currentImageIndex < _images.Count && _images[_currentImageIndex] == currentImage)
-                {
-                    Dispatcher.Invoke(() =>
-                    {
-                        FileNameDisplay.Text = $"Conversion error: {ex.Message}";
-                        FileNameDisplay.Foreground = System.Windows.Media.Brushes.Yellow;
-                    });
-                }
             }
         }
 

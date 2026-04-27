@@ -262,7 +262,7 @@ public class ImageFileTests
     public void ImageFile_ConvertedVideoPath_CanBeSet()
     {
         // Arrange
-        var file = new ImageFile { FileName = "video.webm", FilePath = "C:\\video.webm" };
+        var file = new ImageFile { FileName = "video.mp4", FilePath = "C:\\video.mp4" };
 
         // Act
         file.ConvertedVideoPath = "C:\\cache\\video.mp4";
@@ -275,7 +275,7 @@ public class ImageFileTests
     public void ImageFile_ConvertedVideoPath_RaisesPropertyChanged()
     {
         // Arrange
-        var file = new ImageFile { FileName = "video.webm", FilePath = "C:\\video.webm" };
+        var file = new ImageFile { FileName = "video.mp4", FilePath = "C:\\video.mp4" };
         var propertyChangedRaised = false;
         file.PropertyChanged += (s, e) =>
         {

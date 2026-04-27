@@ -303,64 +303,6 @@
                 </StackPanel>
             </Border>
 
-            <!-- FFmpeg Setup Section -->
-            <Border BorderBrush="#CCCCCC" BorderThickness="1" CornerRadius="8" Background="White" Padding="20" Margin="0,0,0,20">
-                <StackPanel>
-                    <TextBlock Text="WebM Video Support (FFmpeg Setup)" FontSize="18" FontWeight="Bold" Foreground="#333333" Margin="0,0,0,12" />
-                    
-                    <TextBlock TextWrapping="Wrap" Foreground="#555555" Margin="0,0,0,12">
-                        <Run>DaisyView can display WebM video files in slideshow mode. To enable this feature, FFmpeg must be installed on your system and available in your PATH environment variable.</Run>
-                    </TextBlock>
-
-                    <TextBlock Text="How WebM Playback Works" FontSize="14" FontWeight="Bold" Foreground="#555555" Margin="0,0,0,8" />
-                    <TextBlock TextWrapping="Wrap" Foreground="#666666" Margin="20,0,0,12">
-                        <Run>1. When a WebM file is encountered in slideshow mode, DaisyView automatically converts it to MP4 using FFmpeg</Run>
-                    </TextBlock>
-                    <TextBlock TextWrapping="Wrap" Foreground="#666666" Margin="20,0,0,12">
-                        <Run>2. The converted MP4 file is cached locally for instant playback on subsequent views</Run>
-                    </TextBlock>
-                    <TextBlock TextWrapping="Wrap" Foreground="#666666" Margin="20,0,0,12">
-                        <Run>3. While converting, a thumbnail is displayed with a "Converting video..." message</Run>
-                    </TextBlock>
-                    <TextBlock TextWrapping="Wrap" Foreground="#666666" Margin="20,0,0,12">
-                        <Run>4. Once conversion completes, the MP4 plays automatically in fullscreen</Run>
-                    </TextBlock>
-
-                    <TextBlock Text="Installing FFmpeg" FontSize="14" FontWeight="Bold" Foreground="#555555" Margin="0,12,0,8" />
-                    
-                    <TextBlock Text="Windows (using Chocolatey)" FontSize="12" FontWeight="Bold" Foreground="#333333" Margin="0,0,0,4" />
-                    <TextBlock TextWrapping="Wrap" Foreground="#666666" Margin="20,0,0,8" FontFamily="Courier New">
-                        <Run>choco install ffmpeg</Run>
-                    </TextBlock>
-
-                    <TextBlock Text="Windows (using winget)" FontSize="12" FontWeight="Bold" Foreground="#333333" Margin="0,0,0,4" />
-                    <TextBlock TextWrapping="Wrap" Foreground="#666666" Margin="20,0,0,8" FontFamily="Courier New">
-                        <Run>winget install FFmpeg.FFmpeg</Run>
-                    </TextBlock>
-
-                    <TextBlock Text="Windows (Manual Installation)" FontSize="12" FontWeight="Bold" Foreground="#333333" Margin="0,0,0,4" />
-                    <TextBlock TextWrapping="Wrap" Foreground="#666666" Margin="20,0,0,8">
-                        <Run>Download from </Run>
-                        <Hyperlink NavigateUri="https://ffmpeg.org/download.html" 
-                                   RequestNavigate="Hyperlink_RequestNavigate">
-                            ffmpeg.org
-                        </Hyperlink>
-                        <Run>, extract to a folder, and add that folder to your PATH environment variable</Run>
-                    </TextBlock>
-
-                    <TextBlock Text="Verify Installation" FontSize="12" FontWeight="Bold" Foreground="#333333" Margin="0,12,0,4" />
-                    <TextBlock TextWrapping="Wrap" Foreground="#666666" Margin="20,0,0,8">
-                        <Run>Open Command Prompt and run: </Run>
-                    </TextBlock>
-                    <TextBlock TextWrapping="Wrap" Foreground="#666666" Margin="20,0,0,12" FontFamily="Courier New">
-                        <Run>ffmpeg -version</Run>
-                    </TextBlock>
-                    <TextBlock TextWrapping="Wrap" Foreground="#666666" Margin="20,0,0,0">
-                        <Run>If FFmpeg is installed correctly, version information will be displayed.</Run>
-                    </TextBlock>
-                </StackPanel>
-            </Border>
-
             <!-- Close Button -->
             <Button Content="Close" 
                     Width="100"

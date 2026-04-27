@@ -23,8 +23,6 @@
     <!-- HTTP client for update checking -->
     <PackageReference Include="System.Net.Http.Json" Version="8.0.0" />
     
-    <!-- FFmpeg for video processing -->
-    <PackageReference Include="FFMpegCore" Version="5.1.0" />
     
     <!-- FITS astronomical image support (suppress .NET Framework compatibility warning) -->
     <PackageReference Include="CSharpFITS" Version="1.1.0">

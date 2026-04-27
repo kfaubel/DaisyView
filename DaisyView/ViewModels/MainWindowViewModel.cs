@@ -42,7 +42,6 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
     private readonly LoggingService _loggingService;
     private readonly FileSystemService _fileSystemService;
     private readonly ThumbnailService _thumbnailService;
-    private readonly VideoConversionService _videoConversionService;
     private readonly FitsImageService _fitsImageService;
     private bool _isNavigating = false;
 
@@ -243,7 +242,6 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
         _loggingService = new LoggingService(_settingsService);
         _fileSystemService = new FileSystemService(_loggingService);
         _thumbnailService = new ThumbnailService(_loggingService);
-        _videoConversionService = new VideoConversionService(_loggingService, _settingsService);
         _fitsImageService = new FitsImageService(_loggingService);
 
         // Subscribe to file system changes to refresh the view when files are added/removed
@@ -499,9 +497,6 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
             _lastPriorityStartIndex = -1;
             _lastPriorityEndIndex = -1;
 
-            // Start background conversion of WebM files to populate cache
-            _ = StartBackgroundVideoConversionAsync(images);
-
             // Fire navigation event
             FolderNavigated?.Invoke(this, new FolderNavigationEventArgs { FolderPath = folderPath });
             
@@ -635,90 +630,6 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
         catch (Exception ex)
         {
             _loggingService.LogError("Failed to expand folder {FolderPath}", ex, node.FullPath);
-        }
-    }
-
-    /// <summary>
-    /// Starts background conversion of video files to MP4 to populate the cache
-    /// This runs asynchronously without blocking the UI
-    /// Only WebM files need conversion; MP4, AVI, MPEG, MPG play directly
-    /// </summary>
-    private async Task StartBackgroundVideoConversionAsync(List<ImageFile> images)
-    {
-        try
-        {
-            // Get only files that need conversion: WebM, AVI, MPEG, MPG
-            // (MP4 is already supported by MediaElement, so doesn't need conversion)
-            var filesToConvert = images.Where(img => img.IsVideo)
-                .Where(img =>
-                {
-                    var ext = System.IO.Path.GetExtension(img.FilePath).ToLower();
-                    return ext == ".webm" || ext == ".avi" || ext == ".mpeg" || ext == ".mpg";
-                })
-                .ToList();
-
-            if (filesToConvert.Count == 0)
-            {
-                _loggingService.LogTrace("No files found for background conversion");
-                StatusMessage = "Cache is up to date.";
-                return;
-            }
-
-            _loggingService.LogInfo("Starting background conversion of {FileCount} files", filesToConvert.Count);
-
-            int convertedCount = 0;
-
-            // Convert each file asynchronously
-            foreach (var file in filesToConvert)
-            {
-                try
-                {
-                    // Check if already converted
-                    var cacheFilePath = _videoConversionService.GetConvertedFilePath(file.FilePath);
-                    if (cacheFilePath != null && System.IO.File.Exists(cacheFilePath))
-                    {
-                        _loggingService.LogTrace("File already converted: {FilePath}", file.FileName);
-                        // Store the cache file path (.daicache) - slideshow will convert to playback path as needed
-                        file.ConvertedVideoPath = cacheFilePath;
-                        convertedCount++;
-                        StatusMessage = $"[{convertedCount}/{filesToConvert.Count} files cached]";
-                        continue;
-                    }
-
-                    // Convert the file and update the ImageFile with the converted cache path
-                    _loggingService.LogInfo("Converting file to MP4 in background: {FileName}", file.FileName);
-                    var convertedCachePath = await _videoConversionService.ConvertWebmToMp4Async(file.FilePath);
-                    
-                    if (!string.IsNullOrEmpty(convertedCachePath) && System.IO.File.Exists(convertedCachePath))
-                    {
-                        // Store the cache file path (.daicache) - slideshow will convert to playback path as needed
-                        file.ConvertedVideoPath = convertedCachePath;
-                        convertedCount++;
-                        _loggingService.LogInfo("Background conversion completed: {FileName} -> {CachePath}", file.FileName, convertedCachePath);
-                    }
-                    else
-                    {
-                        _loggingService.LogWarning("Background conversion failed: {FileName}", file.FileName);
-                    }
-
-                    // Update status message
-                    StatusMessage = $"[{convertedCount}/{filesToConvert.Count} files cached]";
-                }
-                catch (Exception ex)
-                {
-                    _loggingService.LogError("Error during background conversion of {FileName}", ex, file.FileName);
-                }
-            }
-
-            _loggingService.LogInfo("Background conversion completed for {FileCount} files", filesToConvert.Count);
-            
-            // Show final cache status message
-            StatusMessage = "Cache is up to date.";
-        }
-        catch (Exception ex)
-        {
-            _loggingService.LogError("StartBackgroundVideoConversionAsync error", ex);
-            StatusMessage = "Cache update failed.";
         }
     }
 
@@ -981,7 +892,7 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
         try
         {
             var currentIndex = ActiveImage != null ? Images.IndexOf(ActiveImage) : 0;
-            var slideshowWindow = new Views.SlideshowWindow(Images.ToList(), currentIndex, _videoConversionService, AudioEnabled, _fitsImageService);
+            var slideshowWindow = new Views.SlideshowWindow(Images.ToList(), currentIndex, AudioEnabled, _fitsImageService);
             slideshowWindow.ShowDialog();
 
             // Update image states after slideshow closes

@@ -15,7 +15,7 @@ public static class MediaTypeHelper
     /// </summary>
     private static readonly HashSet<string> ImageExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
-        ".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff", ".webp", ".fits", ".fit"
+        ".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff", ".webp", ".fits", ".fit", ".gif"
     };
 
     /// <summary>
@@ -23,15 +23,7 @@ public static class MediaTypeHelper
     /// </summary>
     private static readonly HashSet<string> VideoExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
-        ".webm", ".mp4", ".avi", ".mpeg", ".mpg", ".gif"
-    };
-
-    /// <summary>
-    /// Extensions that require conversion to MP4 for playback
-    /// </summary>
-    private static readonly HashSet<string> ConvertibleExtensions = new(StringComparer.OrdinalIgnoreCase)
-    {
-        ".webm", ".avi", ".mpeg", ".mpg"
+        ".mp4", ".avi", ".mpeg", ".mpg"
     };
 
     /// <summary>
@@ -40,7 +32,7 @@ public static class MediaTypeHelper
     public static readonly string[] AllSupportedExtensions = 
     {
         ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".tif", ".tiff", ".webp", ".fits", ".fit",
-        ".webm", ".mp4", ".avi", ".mpeg", ".mpg"
+        ".mp4", ".avi", ".mpeg", ".mpg"
     };
 
     /// <summary>
@@ -58,7 +50,7 @@ public static class MediaTypeHelper
     public static bool IsStaticImage(string filePath)
     {
         var ext = Path.GetExtension(filePath);
-        return ImageExtensions.Contains(ext);
+        return ImageExtensions.Contains(ext) && !ext.Equals(".gif", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
@@ -84,23 +76,6 @@ public static class MediaTypeHelper
     public static bool IsMp4(string filePath)
     {
         return Path.GetExtension(filePath).Equals(".mp4", StringComparison.OrdinalIgnoreCase);
-    }
-
-    /// <summary>
-    /// Checks if a video format needs conversion to MP4 for playback
-    /// </summary>
-    public static bool NeedsConversion(string filePath)
-    {
-        var ext = Path.GetExtension(filePath);
-        return ConvertibleExtensions.Contains(ext);
-    }
-
-    /// <summary>
-    /// Checks if a file is a WebM video
-    /// </summary>
-    public static bool IsWebM(string filePath)
-    {
-        return Path.GetExtension(filePath).Equals(".webm", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
