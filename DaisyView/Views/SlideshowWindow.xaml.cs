@@ -22,6 +22,7 @@ public partial class SlideshowWindow : Window
     private List<ImageFile> _images = new();
     private int _currentImageIndex;
         private DispatcherTimer? _videoLoopTimer;
+        private bool _isPlayingGif = false;
         private DispatcherTimer? _cursorHideTimer;
         private FitsImageService? _fitsImageService;
         private bool _isCursorHidden = false;
@@ -62,6 +63,7 @@ public partial class SlideshowWindow : Window
             MouseDown += SlideshowWindow_MouseDown;
             MouseWheel += SlideshowWindow_MouseWheel;
             MouseMove += SlideshowWindow_MouseMove;
+            ContentRendered += (s, e) => Focus();
             Closed += (s, e) => 
             {
                 _videoLoopTimer?.Stop();
@@ -93,7 +95,9 @@ public partial class SlideshowWindow : Window
             try
             {
                 // File is loaded and ready, start playback
-                _videoLoopTimer?.Start();
+                // GIFs loop via MediaEnded; only use timer for video files
+                if (!_isPlayingGif)
+                    _videoLoopTimer?.Start();
                 VideoDisplay.Play();
             }
             catch (Exception ex)
@@ -126,6 +130,10 @@ public partial class SlideshowWindow : Window
         {
             try
             {
+                // GIFs use MediaEnded for looping; skip timer-based looping for them
+                if (_isPlayingGif)
+                    return;
+
                 if (VideoDisplay.Source != null && VideoDisplay.NaturalDuration.HasTimeSpan)
                 {
                     // Check if video has finished playing
@@ -278,6 +286,9 @@ public partial class SlideshowWindow : Window
                     return;
                 }
 
+                // Track whether this is a GIF to choose looping strategy
+                _isPlayingGif = MediaTypeHelper.IsGif(videoPath);
+
                 // Create proper file:// URI for MediaElement
                 var fullPath = System.IO.Path.GetFullPath(videoPath);
                 var fileUri = new Uri(fullPath, UriKind.Absolute);
@@ -351,8 +362,8 @@ public partial class SlideshowWindow : Window
     private void SlideshowWindow_PreviewKeyDown(object sender, KeyEventArgs e)
     {
         e.Handled = true;
-
-        switch (e.Key)
+        var key = e.Key == Key.System ? e.SystemKey : e.Key;
+        switch (key)
         {
             case Key.Right:
                 ShowNextImage();

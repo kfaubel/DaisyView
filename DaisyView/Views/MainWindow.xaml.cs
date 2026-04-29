@@ -497,12 +497,13 @@ public partial class MainWindow : Window
     /// </summary>
     private void MainWindow_PreviewKeyDown(object sender, KeyEventArgs e)
     {
-        if (e.Key == Key.F11)
+        var key = e.Key == Key.System ? e.SystemKey : e.Key;
+        if (key == Key.F11)
         {
             _viewModel?.OpenSlideshow();
             e.Handled = true;
         }
-        else if (e.Key == Key.A && Keyboard.Modifiers == ModifierKeys.Control)
+        else if (key == Key.A && Keyboard.Modifiers == ModifierKeys.Control)
         {
             _viewModel?.SelectAll();
             e.Handled = true;
