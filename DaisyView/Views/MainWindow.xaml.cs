@@ -329,34 +329,7 @@ public partial class MainWindow : Window
             var ctrlPressed = (Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control;
             if (ctrlPressed)
             {
-                PromoteAnchorFolderIntoMergedSelection(viewModel, node);
-
-                if (_mergedFolderSelection.Contains(node.FullPath))
-                {
-                    _mergedFolderSelection.Remove(node.FullPath);
-                    node.IsMergedSelected = false;
-                    _mergedFolderNodes.Remove(node);
-                }
-                else
-                {
-                    _mergedFolderSelection.Add(node.FullPath);
-                    node.IsMergedSelected = true;
-                    _mergedFolderNodes.Add(node);
-                }
-
-                RefreshMergedFolderIndicators(viewModel);
-
-                if (_mergedFolderSelection.Count <= 1)
-                {
-                    // If Ctrl selection has one folder left, keep behavior equivalent to normal single-folder view.
-                    var singlePath = _mergedFolderSelection.Count == 1 ? _mergedFolderSelection.First() : node.FullPath;
-                    viewModel.NavigateToFolder(singlePath);
-                }
-                else
-                {
-                    viewModel.NavigateToFolders(_mergedFolderSelection.OrderBy(path => path, StringComparer.OrdinalIgnoreCase).ToList());
-                }
-
+                ToggleMergedFolderSelection(viewModel, node);
                 e.Handled = true;
                 return;
             }
@@ -386,6 +359,95 @@ public partial class MainWindow : Window
         _mergedFolderSelection.Add(anchorNode.FullPath);
         anchorNode.IsMergedSelected = true;
         _mergedFolderNodes.Add(anchorNode);
+    }
+
+    private void ToggleMergedFolderSelection(MainWindowViewModel viewModel, TreeNode node)
+    {
+        PromoteAnchorFolderIntoMergedSelection(viewModel, node);
+
+        if (_mergedFolderSelection.Contains(node.FullPath))
+        {
+            _mergedFolderSelection.Remove(node.FullPath);
+            node.IsMergedSelected = false;
+            _mergedFolderNodes.Remove(node);
+        }
+        else
+        {
+            _mergedFolderSelection.Add(node.FullPath);
+            node.IsMergedSelected = true;
+            _mergedFolderNodes.Add(node);
+        }
+
+        RefreshMergedFolderIndicators(viewModel);
+        NavigateForMergedFolderSelection(viewModel, node);
+    }
+
+    private void NavigateForMergedFolderSelection(MainWindowViewModel viewModel, TreeNode fallbackNode)
+    {
+        if (_mergedFolderSelection.Count <= 1)
+        {
+            // If the merged selection only has one folder, keep behavior equivalent to normal single-folder view.
+            var singlePath = _mergedFolderSelection.Count == 1 ? _mergedFolderSelection.First() : fallbackNode.FullPath;
+            viewModel.NavigateToFolder(singlePath);
+            return;
+        }
+
+        viewModel.NavigateToFolders(_mergedFolderSelection.OrderBy(path => path, StringComparer.OrdinalIgnoreCase).ToList());
+    }
+
+    private void TreeViewItem_ContextMenuOpening(object sender, ContextMenuEventArgs e)
+    {
+        if (sender is not TreeViewItem treeViewItem || treeViewItem.DataContext is not TreeNode node)
+            return;
+
+        treeViewItem.ContextMenu = BuildFolderContextMenu(node);
+    }
+
+    private ContextMenu BuildFolderContextMenu(TreeNode node)
+    {
+        var toggleItem = new MenuItem
+        {
+            Header = _mergedFolderSelection.Contains(node.FullPath)
+            ? "Remove From Merged View"
+            : "Add To Merged View",
+            Tag = node
+        };
+        toggleItem.Click += FolderContextMenu_ToggleMergedSelection_Click;
+
+        var openOnlyItem = new MenuItem
+        {
+            Header = "Open Only This Folder",
+            Tag = node
+        };
+        openOnlyItem.Click += FolderContextMenu_OpenOnlyThisFolder_Click;
+
+        var contextMenu = new ContextMenu();
+        contextMenu.Items.Add(toggleItem);
+        contextMenu.Items.Add(openOnlyItem);
+        return contextMenu;
+    }
+
+    private void FolderContextMenu_ToggleMergedSelection_Click(object sender, RoutedEventArgs e)
+    {
+        if (_viewModel == null || _viewModel.IsNavigating)
+            return;
+
+        if (sender is not MenuItem menuItem || menuItem.Tag is not TreeNode node)
+            return;
+
+        ToggleMergedFolderSelection(_viewModel, node);
+    }
+
+    private void FolderContextMenu_OpenOnlyThisFolder_Click(object sender, RoutedEventArgs e)
+    {
+        if (_viewModel == null || _viewModel.IsNavigating)
+            return;
+
+        if (sender is not MenuItem menuItem || menuItem.Tag is not TreeNode node)
+            return;
+
+        ClearMergedFolderSelection();
+        _viewModel.NavigateToFolder(node.FullPath);
     }
 
     /// <summary>
@@ -500,6 +562,7 @@ public partial class MainWindow : Window
         var key = e.Key == Key.System ? e.SystemKey : e.Key;
         if (key == Key.F11)
         {
+            DismissOpenTooltip();
             _viewModel?.OpenSlideshow();
             e.Handled = true;
         }
@@ -507,6 +570,25 @@ public partial class MainWindow : Window
         {
             _viewModel?.SelectAll();
             e.Handled = true;
+        }
+    }
+
+    /// <summary>
+    /// Closes any open tooltip when slideshow is opened via keyboard (no MouseLeave fires).
+    /// Walks up from Mouse.DirectlyOver to find the tooltip owner and briefly disables it.
+    /// </summary>
+    private static void DismissOpenTooltip()
+    {
+        var element = Mouse.DirectlyOver as FrameworkElement;
+        while (element != null)
+        {
+            if (ToolTipService.GetToolTip(element) != null)
+            {
+                ToolTipService.SetIsEnabled(element, false);
+                ToolTipService.SetIsEnabled(element, true);
+                return;
+            }
+            element = VisualTreeHelper.GetParent(element) as FrameworkElement;
         }
     }
 

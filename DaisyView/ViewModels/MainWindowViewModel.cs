@@ -485,6 +485,9 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
             // Cancel thumbnail generation for the previous folder
             _thumbnailService.CancelBackgroundGeneration();
 
+            // Clear images immediately so old tiles disappear and the grid shows blank placeholders
+            Images = new ObservableCollection<ImageFile>();
+
             // Load images from the new folder asynchronously
             var images = await _fileSystemService.GetImageFilesAsync(folderPath);
             Images = new ObservableCollection<ImageFile>(images);
@@ -590,6 +593,9 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
         try
         {
             _thumbnailService.CancelBackgroundGeneration();
+
+            // Clear images immediately so old tiles disappear and the grid shows blank placeholders
+            Images = new ObservableCollection<ImageFile>();
 
             var imageTasks = validFolders.Select(_fileSystemService.GetImageFilesAsync).ToList();
             var folderResults = await Task.WhenAll(imageTasks);
@@ -1115,6 +1121,7 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
         {
             var currentIndex = ActiveImage != null ? Images.IndexOf(ActiveImage) : 0;
             var slideshowWindow = new Views.SlideshowWindow(Images.ToList(), currentIndex, AudioEnabled, _fitsImageService);
+            slideshowWindow.Owner = System.Windows.Application.Current.MainWindow;
             slideshowWindow.ShowDialog();
 
             // Update image states after slideshow closes

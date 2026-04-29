@@ -22,10 +22,9 @@ public partial class App : Application
     protected override void OnStartup(StartupEventArgs e)
     {
         _startupTimer = Stopwatch.StartNew();
-        base.OnStartup(e);
-
         try
         {
+            base.OnStartup(e);
             LogStartupTime("Application OnStartup started");
 
             // Initialize services
@@ -44,13 +43,23 @@ public partial class App : Application
             ApplyTheme();
             LogStartupTime("Theme applied");
 
+            // Create and show the main window explicitly so startup does not depend on StartupUri.
+            var mainWindow = new MainWindow();
+            MainWindow = mainWindow;
+            mainWindow.Show();
+            LogStartupTime("Main window shown");
+
             // Check for updates on startup
             _ = CheckForUpdatesAsync();
             LogStartupTime("Update check initiated");
         }
         catch (Exception ex)
         {
-            MessageBox.Show($"Failed to initialize application: {ex.Message}", "Startup Error", 
+            _loggingService?.LogError("Failed to initialize application during startup", ex);
+            var errorMessage = ex.InnerException != null
+                ? $"Failed to initialize application: {ex.Message}\n\nInner exception: {ex.InnerException.Message}"
+                : $"Failed to initialize application: {ex.Message}";
+            MessageBox.Show(errorMessage, "Startup Error", 
                 MessageBoxButton.OK, MessageBoxImage.Error);
             Shutdown();
         }

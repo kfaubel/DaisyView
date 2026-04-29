@@ -220,6 +220,7 @@
                             </Setter.Value>
                         </Setter>
                         <EventSetter Event="Expanded" Handler="TreeViewItem_Expanded" />
+                        <EventSetter Event="ContextMenuOpening" Handler="TreeViewItem_ContextMenuOpening" />
                         <Style.Triggers>
                             <Trigger Property="IsSelected" Value="True">
                                 <Setter Property="Foreground" Value="White" />
@@ -551,7 +552,9 @@
                                     <Border BorderThickness="2" 
                                             BorderBrush="{Binding IsActive, Converter={StaticResource BoolToRedBrushConverter}}"
                                             Margin="5">
-                                        <Grid>
+                                        <Grid Width="{Binding DataContext.ThumbnailSizePixels, RelativeSource={RelativeSource AncestorType=Window}}"
+                                              Height="{Binding DataContext.ThumbnailHeightPixels, RelativeSource={RelativeSource AncestorType=Window}}"
+                                              Background="#FF303030">
                                             <Image Source="{Binding ThumbnailData, Converter={StaticResource ByteArrayToBitmapImageConverter}}" 
                                                    Width="{Binding DataContext.ThumbnailSizePixels, RelativeSource={RelativeSource AncestorType=Window}}"
                                                    Height="{Binding DataContext.ThumbnailHeightPixels, RelativeSource={RelativeSource AncestorType=Window}}"
