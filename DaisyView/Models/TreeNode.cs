@@ -31,6 +31,26 @@ public class TreeNode : INotifyPropertyChanged
     public TreeNode? Parent { get; set; }
 
     /// <summary>
+    /// True when this node represents a shortcut (.lnk) to another folder.
+    /// </summary>
+    public bool IsShortcut { get; set; }
+
+    /// <summary>
+    /// Full path to the backing .lnk file when IsShortcut is true.
+    /// </summary>
+    public string? ShortcutFilePath { get; set; }
+
+    /// <summary>
+    /// Number of media files in the target folder (set once at creation for shortcut nodes).
+    /// </summary>
+    public int? FileCount { get; set; }
+
+    /// <summary>
+    /// Returns " (N)" for shortcut nodes whose FileCount is known, empty string otherwise.
+    /// </summary>
+    public string FileCountLabel => (IsShortcut && FileCount.HasValue) ? $" ({FileCount})" : string.Empty;
+
+    /// <summary>
     /// Whether this node is currently expanded in the tree view
     /// </summary>
     private bool _isExpanded;

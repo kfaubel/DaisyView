@@ -115,7 +115,7 @@ public class FileSystemService : IDisposable
     }
 
     /// <summary>
-    /// Gets subdirectories for a given folder path
+    /// Gets subdirectories and folder shortcuts for a given folder path.
     /// </summary>
     public List<TreeNode> GetSubfolders(string folderPath, TreeNode? parentNode = null)
     {
@@ -124,11 +124,11 @@ public class FileSystemService : IDisposable
         try
         {
             var directory = new DirectoryInfo(folderPath);
-            
-            // Get all subdirectories (excluding hidden ones)
+
+            // Get all direct subdirectories (excluding hidden ones)
             var directories = directory.GetDirectories()
                 .Where(d => (d.Attributes & FileAttributes.Hidden) == 0)
-                .OrderBy(d => d.Name)
+                .OrderBy(d => d.Name, StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
             foreach (var dir in directories)
@@ -139,30 +139,56 @@ public class FileSystemService : IDisposable
                     FullPath = dir.FullName,
                     Parent = parentNode,
                     IsExpanded = false,
-                    IsActive = false
+                    IsActive = false,
+                    IsShortcut = false,
+                    ShortcutFilePath = null
                 };
-                
-                // Only add placeholder if this folder has subdirectories
-                try
+
+                if (HasVisibleChildren(dir.FullName))
                 {
-                    var hasSubfolders = dir.GetDirectories()
-                        .Any(d => (d.Attributes & FileAttributes.Hidden) == 0);
-                    
-                    if (hasSubfolders)
-                    {
-                        node.Children.Add(new TreeNode { Name = "Loading...", FullPath = "" });
-                    }
-                }
-                catch
-                {
-                    // If we can't check for subfolders, add placeholder anyway to be safe
-                    node.Children.Add(new TreeNode { Name = "Loading...", FullPath = "" });
+                    node.Children.Add(new TreeNode { Name = "Loading...", FullPath = "", Parent = node });
                 }
 
                 subfolders.Add(node);
             }
 
-            _loggingService.LogTrace("Found {SubfolderCount} subfolders in {FolderPath}", subfolders.Count, folderPath);
+            // Include .lnk files that point to folders.
+            var shortcutFiles = directory.GetFiles("*.lnk")
+                .OrderBy(f => f.Name, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            foreach (var shortcutFile in shortcutFiles)
+            {
+                var targetFolder = ResolveShortcutToFolder(shortcutFile.FullName);
+                if (targetFolder == null)
+                    continue;
+
+                var shortcutNode = new TreeNode
+                {
+                    Name = Path.GetFileNameWithoutExtension(shortcutFile.Name),
+                    FullPath = targetFolder,
+                    Parent = parentNode,
+                    IsExpanded = false,
+                    IsActive = false,
+                    IsShortcut = true,
+                    ShortcutFilePath = shortcutFile.FullName,
+                    FileCount = CountMediaFiles(targetFolder)
+                };
+
+                if (HasVisibleChildren(targetFolder))
+                {
+                    shortcutNode.Children.Add(new TreeNode { Name = "Loading...", FullPath = "", Parent = shortcutNode });
+                }
+
+                subfolders.Add(shortcutNode);
+            }
+
+            subfolders = subfolders
+                .OrderBy(node => node.IsShortcut)
+                .ThenBy(node => node.Name, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            _loggingService.LogTrace("Found {SubfolderCount} folder entries in {FolderPath}", subfolders.Count, folderPath);
         }
         catch (Exception ex)
         {
@@ -173,11 +199,11 @@ public class FileSystemService : IDisposable
     }
 
     /// <summary>
-    /// Resolves a Windows shortcut (.lnk) file to get its target path
+    /// Resolves a Windows shortcut (.lnk) file to get its target folder path.
     /// </summary>
     /// <param name="shortcutPath">Full path to the .lnk file</param>
     /// <returns>Target path, or null if resolution fails or target is not a directory</returns>
-    private string? ResolveShortcutToFolder(string shortcutPath)
+    public string? ResolveShortcutToFolder(string shortcutPath)
     {
         try
         {
@@ -200,6 +226,27 @@ public class FileSystemService : IDisposable
         }
 
         return null;
+    }
+
+    private bool HasVisibleChildren(string folderPath)
+    {
+        try
+        {
+            var directory = new DirectoryInfo(folderPath);
+            var hasRealSubfolders = directory.GetDirectories()
+                .Any(d => (d.Attributes & FileAttributes.Hidden) == 0);
+
+            if (hasRealSubfolders)
+                return true;
+
+            return directory.GetFiles("*.lnk")
+                .Any(shortcut => ResolveShortcutToFolder(shortcut.FullName) != null);
+        }
+        catch
+        {
+            // If we cannot inspect children, keep expander available to try on demand.
+            return true;
+        }
     }
 
     /// <summary>
@@ -390,7 +437,7 @@ public class FileSystemService : IDisposable
     }
 
     /// <summary>
-    /// Creates a new folder
+    /// Creates a new folder.
     /// </summary>
     public void CreateFolder(string folderPath, string folderName)
     {
@@ -404,6 +451,133 @@ public class FileSystemService : IDisposable
         {
             _loggingService.LogError("Failed to create folder {FolderPath}", ex, folderPath);
             throw;
+        }
+    }
+
+    /// <summary>
+    /// Adds a .lnk shortcut to sourceFolderPath inside virtualFolderPath.
+    /// </summary>
+    public string AddFolderShortcut(string sourceFolderPath, string virtualFolderPath)
+    {
+        try
+        {
+            if (!Directory.Exists(sourceFolderPath))
+                throw new DirectoryNotFoundException($"Source folder does not exist: {sourceFolderPath}");
+
+            if (!Directory.Exists(virtualFolderPath))
+                throw new DirectoryNotFoundException($"Virtual folder does not exist: {virtualFolderPath}");
+
+            var suggestedName = Path.GetFileName(Path.TrimEndingDirectorySeparator(sourceFolderPath));
+            if (string.IsNullOrWhiteSpace(suggestedName))
+            {
+                suggestedName = "Folder Shortcut";
+            }
+
+            var shortcutPath = GetUniqueShortcutPath(virtualFolderPath, suggestedName);
+
+            var link = (IShellLinkW)new ShellLink();
+            link.SetPath(sourceFolderPath);
+            link.SetDescription($"Shortcut to {sourceFolderPath}");
+
+            var persistFile = (IPersistFile)link;
+            persistFile.Save(shortcutPath, true);
+
+            _loggingService.LogUserAction("Folder shortcut created", $"{sourceFolderPath} -> {shortcutPath}");
+            return shortcutPath;
+        }
+        catch (Exception ex)
+        {
+            _loggingService.LogError("Failed to add shortcut for {SourceFolder} to {VirtualFolder}", ex, sourceFolderPath, virtualFolderPath);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Removes an existing folder shortcut (.lnk).
+    /// </summary>
+    public void RemoveFolderShortcut(string shortcutPath)
+    {
+        try
+        {
+            if (string.IsNullOrWhiteSpace(shortcutPath) || !File.Exists(shortcutPath))
+                return;
+
+            if (!string.Equals(Path.GetExtension(shortcutPath), ".lnk", StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("Only .lnk files can be removed with RemoveFolderShortcut.");
+
+            File.Delete(shortcutPath);
+            _loggingService.LogUserAction("Folder shortcut removed", shortcutPath);
+        }
+        catch (Exception ex)
+        {
+            _loggingService.LogError("Failed to remove folder shortcut {ShortcutPath}", ex, shortcutPath);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Counts supported media files in a folder (non-recursive, best-effort).
+    /// </summary>
+    private static int CountMediaFiles(string folderPath)
+    {
+        try
+        {
+            return Directory.EnumerateFiles(folderPath)
+                .Count(f => MediaTypeHelper.IsSupportedMedia(f));
+        }
+        catch
+        {
+            return 0;
+        }
+    }
+
+    /// <summary>
+    /// Renames a folder shortcut (.lnk) file.
+    /// </summary>
+    public string RenameShortcut(string shortcutPath, string newName)
+    {
+        try
+        {
+            if (!File.Exists(shortcutPath))
+                throw new FileNotFoundException("Shortcut file not found.", shortcutPath);
+
+            var directory = Path.GetDirectoryName(shortcutPath)
+                ?? throw new InvalidOperationException("Cannot determine shortcut directory.");
+
+            var newPath = Path.Combine(directory, newName + ".lnk");
+            if (File.Exists(newPath))
+                throw new InvalidOperationException($"A shortcut named '{newName}' already exists.");
+
+            File.Move(shortcutPath, newPath);
+            _loggingService.LogUserAction("Shortcut renamed", $"{shortcutPath} -> {newPath}");
+            return newPath;
+        }
+        catch (Exception ex)
+        {
+            _loggingService.LogError("Failed to rename shortcut {ShortcutPath}", ex, shortcutPath);
+            throw;
+        }
+    }
+
+    private static string GetUniqueShortcutPath(string virtualFolderPath, string baseName)
+    {
+        var sanitizedBaseName = string.Join("_", baseName.Split(Path.GetInvalidFileNameChars(), StringSplitOptions.RemoveEmptyEntries));
+        if (string.IsNullOrWhiteSpace(sanitizedBaseName))
+        {
+            sanitizedBaseName = "Folder Shortcut";
+        }
+
+        var index = 0;
+        while (true)
+        {
+            var suffix = index == 0 ? string.Empty : $" ({index})";
+            var candidatePath = Path.Combine(virtualFolderPath, $"{sanitizedBaseName}{suffix}.lnk");
+            if (!File.Exists(candidatePath))
+            {
+                return candidatePath;
+            }
+
+            index++;
         }
     }
 

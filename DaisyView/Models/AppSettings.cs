@@ -84,4 +84,9 @@ public class AppSettings
     /// Window state: Normal, Maximized, or Minimized
     /// </summary>
     public string WindowState { get; set; } = AppConstants.WindowDefaults.State;
+
+    /// <summary>
+    /// Width of the tree view panel in pixels
+    /// </summary>
+    public double TreeViewWidth { get; set; } = 250;
 }

@@ -8,6 +8,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
 using DaisyView.Models;
+using Forms = System.Windows.Forms;
 using DaisyView.Services;
 using DaisyView.ViewModels;
 
@@ -23,6 +24,7 @@ public partial class MainWindow : Window
     private readonly DispatcherTimer _thumbnailPriorityTimer;
     private readonly HashSet<string> _mergedFolderSelection = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<TreeNode> _mergedFolderNodes = new();
+    private TreeNode? _lastViewedShortcut = null;
 
     public MainWindow()
     {
@@ -42,7 +44,7 @@ public partial class MainWindow : Window
 
         _thumbnailPriorityTimer = new DispatcherTimer
         {
-            Interval = TimeSpan.FromMilliseconds(120)
+            Interval = TimeSpan.FromMilliseconds(40)
         };
         _thumbnailPriorityTimer.Tick += ThumbnailPriorityTimer_Tick;
     }
@@ -134,6 +136,12 @@ public partial class MainWindow : Window
             UpdateClipboardStatus();
             // Set initial size button color
             UpdateSizeButtonColors(_viewModel.ThumbnailSize);
+            
+            // Restore tree view width from settings
+            if (_viewModel.TreeViewWidth > 0)
+            {
+                TreeViewColumn.Width = new GridLength(_viewModel.TreeViewWidth);
+            }
         }
 
         ScheduleVisibleThumbnailPriorityUpdate();
@@ -194,7 +202,7 @@ public partial class MainWindow : Window
             || e.ViewportHeightChange != 0
             || e.ViewportWidthChange != 0)
         {
-            ScheduleVisibleThumbnailPriorityUpdate();
+            UpdateVisibleThumbnailPriority();
         }
     }
 
@@ -296,6 +304,7 @@ public partial class MainWindow : Window
         if (container != null)
         {
             container.BringIntoView();
+            UpdateVisibleThumbnailPriority();
         }
     }
 
@@ -335,8 +344,14 @@ public partial class MainWindow : Window
             }
 
             ClearMergedFolderSelection();
-            viewModel.NavigateToFolder(node.FullPath);
+            viewModel.NavigateToFolder(node.FullPath, node);
             // Note: ActiveFolder is set via the TwoWay binding when IsActive is set
+            
+            // Track the last viewed shortcut so we can use it when adding folders to virtual folders
+            if (node.IsShortcut)
+            {
+                _lastViewedShortcut = node;
+            }
         }
     }
 
@@ -400,30 +415,54 @@ public partial class MainWindow : Window
         if (sender is not TreeViewItem treeViewItem || treeViewItem.DataContext is not TreeNode node)
             return;
 
-        treeViewItem.ContextMenu = BuildFolderContextMenu(node);
+        // If the ContextMenu doesn't exist yet, create it
+        if (treeViewItem.ContextMenu == null)
+        {
+            treeViewItem.ContextMenu = BuildFolderContextMenu(node);
+            // Force the menu to open on first right-click
+            treeViewItem.ContextMenu.PlacementTarget = treeViewItem;
+            treeViewItem.ContextMenu.IsOpen = true;
+            e.Handled = true;
+        }
+        else
+        {
+            // Rebuild the menu in case the node state changed (e.g., became/stopped being a shortcut)
+            treeViewItem.ContextMenu = BuildFolderContextMenu(node);
+        }
     }
 
     private ContextMenu BuildFolderContextMenu(TreeNode node)
     {
-        var toggleItem = new MenuItem
-        {
-            Header = _mergedFolderSelection.Contains(node.FullPath)
-            ? "Remove From Merged View"
-            : "Add To Merged View",
-            Tag = node
-        };
-        toggleItem.Click += FolderContextMenu_ToggleMergedSelection_Click;
-
-        var openOnlyItem = new MenuItem
-        {
-            Header = "Open Only This Folder",
-            Tag = node
-        };
-        openOnlyItem.Click += FolderContextMenu_OpenOnlyThisFolder_Click;
-
         var contextMenu = new ContextMenu();
-        contextMenu.Items.Add(toggleItem);
-        contextMenu.Items.Add(openOnlyItem);
+
+        if (node.IsShortcut)
+        {
+            var openTargetItem = new MenuItem { Header = "Open target", Tag = node };
+            openTargetItem.Click += FolderContextMenu_OpenTarget_Click;
+
+            var renameItem = new MenuItem { Header = "Rename...", Tag = node };
+            renameItem.Click += FolderContextMenu_RenameShortcut_Click;
+
+            var removeItem = new MenuItem { Header = "Remove this shortcut", Tag = node };
+            removeItem.Click += FolderContextMenu_RemoveShortcut_Click;
+
+            contextMenu.Items.Add(openTargetItem);
+            contextMenu.Items.Add(new Separator());
+            contextMenu.Items.Add(renameItem);
+            contextMenu.Items.Add(removeItem);
+        }
+        else
+        {
+            var newFolderItem = new MenuItem { Header = "New Folder", Tag = node };
+            newFolderItem.Click += FolderContextMenu_NewFolder_Click;
+
+            var addToVirtualItem = new MenuItem { Header = "Add to virtual folder...", Tag = node };
+            addToVirtualItem.Click += FolderContextMenu_AddToVirtualFolder_Click;
+
+            contextMenu.Items.Add(newFolderItem);
+            contextMenu.Items.Add(addToVirtualItem);
+        }
+
         return contextMenu;
     }
 
@@ -438,7 +477,9 @@ public partial class MainWindow : Window
         ToggleMergedFolderSelection(_viewModel, node);
     }
 
-    private void FolderContextMenu_OpenOnlyThisFolder_Click(object sender, RoutedEventArgs e)
+
+
+    private void FolderContextMenu_NewFolder_Click(object sender, RoutedEventArgs e)
     {
         if (_viewModel == null || _viewModel.IsNavigating)
             return;
@@ -446,8 +487,283 @@ public partial class MainWindow : Window
         if (sender is not MenuItem menuItem || menuItem.Tag is not TreeNode node)
             return;
 
+        var folderName = Microsoft.VisualBasic.Interaction.InputBox(
+            "Enter the new folder name:",
+            "New Folder",
+            "New Folder").Trim();
+
+        if (string.IsNullOrWhiteSpace(folderName))
+            return;
+
+        try
+        {
+            var newFolderPath = _viewModel.CreateSubfolder(node, folderName);
+            _viewModel.RefreshFolderNodeChildren(node);
+            _viewModel.StatusMessage = $"Created folder '{Path.GetFileName(newFolderPath)}'.";
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"Unable to create folder: {ex.Message}", "New Folder", MessageBoxButton.OK, MessageBoxImage.Error);
+            _viewModel.StatusMessage = $"Error creating folder: {ex.Message}";
+        }
+    }
+
+    private void FolderContextMenu_AddToVirtualFolder_Click(object sender, RoutedEventArgs e)
+    {
+        if (_viewModel == null || _viewModel.IsNavigating)
+            return;
+
+        if (sender is not MenuItem menuItem || menuItem.Tag is not TreeNode node)
+            return;
+
+        var selectedVirtualFolder = SelectVirtualFolder(node);
+        if (string.IsNullOrWhiteSpace(selectedVirtualFolder))
+            return;
+
+        try
+        {
+            var shortcutPath = _viewModel.AddFolderToVirtualFolder(node.FullPath, selectedVirtualFolder);
+            _viewModel.StatusMessage = $"Added shortcut '{Path.GetFileName(shortcutPath)}' to '{selectedVirtualFolder}'.";
+
+            // Navigate to the virtual folder to show the newly added shortcut
+            _viewModel.NavigateToFolder(selectedVirtualFolder);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"Unable to add shortcut: {ex.Message}", "Add to virtual folder", MessageBoxButton.OK, MessageBoxImage.Error);
+            _viewModel.StatusMessage = $"Error adding shortcut: {ex.Message}";
+        }
+    }
+
+    private void FolderContextMenu_OpenTarget_Click(object sender, RoutedEventArgs e)
+    {
+        if (_viewModel == null || _viewModel.IsNavigating)
+            return;
+
+        if (sender is not MenuItem menuItem || menuItem.Tag is not TreeNode node || !node.IsShortcut)
+            return;
+
+        if (!Directory.Exists(node.FullPath))
+        {
+            MessageBox.Show(
+                $"The target folder no longer exists:\n{node.FullPath}",
+                "Open target",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+            return;
+        }
+
         ClearMergedFolderSelection();
         _viewModel.NavigateToFolder(node.FullPath);
+    }
+
+    private void FolderContextMenu_RenameShortcut_Click(object sender, RoutedEventArgs e)
+    {
+        if (_viewModel == null || _viewModel.IsNavigating)
+            return;
+
+        if (sender is not MenuItem menuItem || menuItem.Tag is not TreeNode node || !node.IsShortcut)
+            return;
+
+        var newName = Microsoft.VisualBasic.Interaction.InputBox(
+            "Enter a new name for this shortcut:",
+            "Rename Shortcut",
+            node.Name).Trim();
+
+        if (string.IsNullOrWhiteSpace(newName) || newName == node.Name)
+            return;
+
+        try
+        {
+            _viewModel.RenameShortcut(node, newName);
+            if (node.Parent != null)
+                _viewModel.RefreshFolderNodeChildren(node.Parent);
+            _viewModel.StatusMessage = $"Renamed shortcut to '{newName}'.";
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"Unable to rename shortcut: {ex.Message}", "Rename Shortcut", MessageBoxButton.OK, MessageBoxImage.Error);
+            _viewModel.StatusMessage = $"Error renaming shortcut: {ex.Message}";
+        }
+    }
+
+    private void FolderContextMenu_RemoveShortcut_Click(object sender, RoutedEventArgs e)
+    {
+        if (_viewModel == null || _viewModel.IsNavigating)
+            return;
+
+        if (sender is not MenuItem menuItem || menuItem.Tag is not TreeNode node || !node.IsShortcut)
+            return;
+
+        var result = MessageBox.Show(
+            $"Remove shortcut '{node.Name}' from this virtual folder?",
+            "Remove Shortcut",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Question);
+
+        if (result != MessageBoxResult.Yes)
+            return;
+
+        try
+        {
+            _viewModel.RemoveShortcut(node);
+            _mergedFolderSelection.Remove(node.FullPath);
+            _mergedFolderNodes.Remove(node);
+            node.IsMergedSelected = false;
+
+            if (node.Parent != null)
+            {
+                _viewModel.RefreshFolderNodeChildren(node.Parent);
+                _viewModel.StatusMessage = $"Removed shortcut '{node.Name}'.";
+
+                if (ReferenceEquals(_viewModel.ActiveFolder, node))
+                {
+                    _viewModel.NavigateToFolder(node.Parent.FullPath);
+                }
+            }
+            else
+            {
+                _viewModel.StatusMessage = $"Removed shortcut '{node.Name}'.";
+            }
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show($"Unable to remove shortcut: {ex.Message}", "Remove Shortcut", MessageBoxButton.OK, MessageBoxImage.Error);
+            _viewModel.StatusMessage = $"Error removing shortcut: {ex.Message}";
+        }
+    }
+
+    private string? SelectVirtualFolder(TreeNode node)
+    {
+        string? startPath = null;
+        
+        // Priority 1: If we were recently viewing a shortcut, use the directory where the .lnk file lives
+        // This is the most specific - you were viewing a shortcut and want to add another to the same Virtual folder
+        if (_lastViewedShortcut?.IsShortcut == true 
+                 && !string.IsNullOrWhiteSpace(_lastViewedShortcut.ShortcutFilePath))
+        {
+            var shortcutDir = Path.GetDirectoryName(_lastViewedShortcut.ShortcutFilePath);
+            if (!string.IsNullOrWhiteSpace(shortcutDir) && Directory.Exists(shortcutDir))
+            {
+                startPath = shortcutDir;
+            }
+        }
+        
+        // Priority 2: Use the most-recently-visited Virtual folder
+        if (string.IsNullOrWhiteSpace(startPath))
+        {
+            startPath = FindLastVirtualFolderPath();
+        }
+        
+        // Priority 3: If active folder is not a shortcut but we're in a folder, use it
+        if (string.IsNullOrWhiteSpace(startPath) 
+            && _viewModel?.ActiveFolder?.IsShortcut == false 
+            && !string.IsNullOrWhiteSpace(_viewModel.ActiveFolder.FullPath) 
+            && Directory.Exists(_viewModel.ActiveFolder.FullPath))
+        {
+            startPath = _viewModel.ActiveFolder.FullPath;
+        }
+        
+        // Priority 4: Fall back to parent of the right-clicked node
+        if (string.IsNullOrWhiteSpace(startPath) 
+            && !string.IsNullOrWhiteSpace(node.Parent?.FullPath) 
+            && Directory.Exists(node.Parent.FullPath))
+        {
+            startPath = node.Parent.FullPath;
+        }
+        
+        // Finally My Pictures
+        if (string.IsNullOrWhiteSpace(startPath) || !Directory.Exists(startPath))
+        {
+            startPath = Environment.GetFolderPath(Environment.SpecialFolder.MyPictures);
+        }
+
+        // WORKAROUND: FolderBrowserDialog.SelectedPath selects a folder but opens at its parent.
+        // To open INSIDE the Virtual folder (showing its subfolders), we need to set SelectedPath
+        // to a subfolder within Virtual. Pick the first subfolder if one exists.
+        string dialogPath = startPath;
+        if (Directory.Exists(startPath))
+        {
+            try
+            {
+                var subfolders = Directory.GetDirectories(startPath);
+                if (subfolders.Length > 0)
+                {
+                    // Set path to first subfolder so dialog opens in Virtual showing all subfolders
+                    dialogPath = subfolders[0];
+                }
+            }
+            catch
+            {
+                // If we can't enumerate subfolders, just use the original path
+            }
+        }
+
+        using var dialog = new Forms.FolderBrowserDialog
+        {
+            Description = "Select a virtual folder to store the new shortcut",
+            UseDescriptionForTitle = true,
+            ShowNewFolderButton = true,
+            SelectedPath = dialogPath
+        };
+
+        if (dialog.ShowDialog() != Forms.DialogResult.OK)
+            return null;
+
+        // Remember this selection so future calls can default back to it.
+        _lastVirtualFolderPath = dialog.SelectedPath;
+        return dialog.SelectedPath;
+    }
+
+    // Stores the last folder chosen in the "Add to virtual folder" dialog.
+    private string? _lastVirtualFolderPath;
+
+    /// <summary>
+    /// Returns the best candidate start path for the virtual-folder picker.
+    /// Priority: (1) last explicitly chosen path, (2) deepest expanded tree node whose
+    /// leaf folder name is "Virtual" (case-insensitive), (3) null.
+    /// </summary>
+    private string? FindLastVirtualFolderPath()
+    {
+        // If the user already chose a folder in a previous session, start there.
+        if (!string.IsNullOrWhiteSpace(_lastVirtualFolderPath) && Directory.Exists(_lastVirtualFolderPath))
+            return _lastVirtualFolderPath;
+
+        // Walk the currently loaded tree nodes looking for an expanded node whose
+        // leaf name is "Virtual".
+        if (_viewModel == null)
+            return null;
+
+        foreach (var root in _viewModel.RootNodes)
+        {
+            var found = FindVirtualNodeRecursive(root);
+            if (found != null)
+                return found;
+        }
+
+        return null;
+    }
+
+    private static string? FindVirtualNodeRecursive(TreeNode node)
+    {
+        // Only consider nodes that have already been expanded (i.e., real data was loaded).
+        if (!node.IsExpanded)
+            return null;
+
+        foreach (var child in node.Children)
+        {
+            if (string.Equals(child.Name, "Virtual", StringComparison.OrdinalIgnoreCase)
+                && Directory.Exists(child.FullPath))
+            {
+                return child.FullPath;
+            }
+
+            var deeper = FindVirtualNodeRecursive(child);
+            if (deeper != null)
+                return deeper;
+        }
+
+        return null;
     }
 
     /// <summary>
@@ -911,5 +1227,16 @@ public partial class MainWindow : Window
         var helpWindow = new HelpWindow();
         helpWindow.Owner = this;
         helpWindow.ShowDialog();
+    }
+
+    /// <summary>
+    /// Handles GridSplitter drag completion to save the tree view width
+    /// </summary>
+    private void GridSplitter_DragCompleted(object sender, System.Windows.Controls.Primitives.DragCompletedEventArgs e)
+    {
+        if (_viewModel != null && TreeViewColumn != null)
+        {
+            _viewModel.TreeViewWidth = TreeViewColumn.ActualWidth;
+        }
     }
 }

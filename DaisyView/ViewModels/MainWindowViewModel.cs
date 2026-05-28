@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Windows.Input;
@@ -59,6 +60,7 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
     private string? _currentFolderPath;
     private List<string> _selectedFolderPaths = new();
     private bool _isMergedFolderView;
+    private double _treeViewWidth = 250;
 
     // Commands
     private ICommand? _navigateToFolderCommand;
@@ -235,8 +237,34 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
         }
     }
 
+    /// <summary>
+    /// Gets or sets the width of the tree view panel
+    /// </summary>
+    public double TreeViewWidth
+    {
+        get => _treeViewWidth;
+        set
+        {
+            if (Math.Abs(_treeViewWidth - value) > 0.1)
+            {
+                _treeViewWidth = value;
+                OnPropertyChanged(nameof(TreeViewWidth));
+                
+                // Save to settings
+                try
+                {
+                    _settingsService.UpdateSetting(s => s.TreeViewWidth = value);
+                }
+                catch (Exception ex)
+                {
+                    _loggingService.LogError("Failed to save tree view width", ex);
+                }
+            }
+        }
+    }
+
     // Command Properties
-    public ICommand NavigateToFolderCommand => _navigateToFolderCommand ??= new RelayCommand<string>(NavigateToFolder);
+    public ICommand NavigateToFolderCommand => _navigateToFolderCommand ??= new RelayCommand<string>(path => NavigateToFolder(path));
     public ICommand ToggleFavoriteCommand => _toggleFavoriteCommand ??= new RelayCommand(_ => ToggleFavorite(), _ => ActiveFolder != null);
     public ICommand ToggleRandomCommand => _toggleRandomCommand ??= new RelayCommand(_ => ToggleRandom(), _ => (ActiveFolder != null || IsMergedFolderView) && Images.Count > 0);
     public ICommand MarkImageCommand => _markImageCommand ??= new RelayCommand<ImageFile>(MarkImage, img => img != null);
@@ -266,6 +294,7 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
         LoadLastActiveFolder();
         LoadFavorites();
         LoadThumbnailSize();
+        LoadTreeViewWidth();
     }
 
     /// <summary>
@@ -319,20 +348,31 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
         if (ActiveFolder == null)
             return;
 
+        RefreshFolderNodeChildren(ActiveFolder);
+    }
+
+    /// <summary>
+    /// Reloads the immediate child nodes for a tree node.
+    /// </summary>
+    public void RefreshFolderNodeChildren(TreeNode? node)
+    {
+        if (node == null || string.IsNullOrWhiteSpace(node.FullPath) || !_fileSystemService.PathExists(node.FullPath))
+            return;
+
         try
         {
-            // Clear existing children and reload
-            ActiveFolder.Children.Clear();
-            var subfolders = _fileSystemService.GetSubfolders(ActiveFolder.FullPath, ActiveFolder);
+            node.Children.Clear();
+            var subfolders = _fileSystemService.GetSubfolders(node.FullPath, node);
             foreach (var subfolder in subfolders)
             {
-                ActiveFolder.Children.Add(subfolder);
+                node.Children.Add(subfolder);
             }
-            _loggingService.LogTrace("Refreshed subfolders for: {FolderPath}", ActiveFolder.FullPath);
+
+            _loggingService.LogTrace("Refreshed subfolders for: {FolderPath}", node.FullPath);
         }
         catch (Exception ex)
         {
-            _loggingService.LogError("Failed to refresh subfolders for {FolderPath}", ex, ActiveFolder.FullPath);
+            _loggingService.LogError("Failed to refresh subfolders for {FolderPath}", ex, node.FullPath);
         }
     }
 
@@ -433,9 +473,26 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
     }
 
     /// <summary>
+    /// Loads the tree view width from settings
+    /// </summary>
+    private void LoadTreeViewWidth()
+    {
+        try
+        {
+            var settings = _settingsService.GetSettings();
+            _treeViewWidth = settings.TreeViewWidth;
+            OnPropertyChanged(nameof(TreeViewWidth));
+        }
+        catch (Exception ex)
+        {
+            _loggingService.LogError("Failed to load tree view width", ex);
+        }
+    }
+
+    /// <summary>
     /// Navigates to a specific folder
     /// </summary>
-    public void NavigateToFolder(string? folderPath)
+    public void NavigateToFolder(string? folderPath, TreeNode? sourceNode = null)
     {
         _loggingService.LogTrace("NavigateToFolder called with: {Path}", folderPath ?? "null");
         if (string.IsNullOrEmpty(folderPath))
@@ -443,7 +500,7 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
             return;
         }
 
-        _ = NavigateToFolderAsync(folderPath);
+        _ = NavigateToFolderAsync(folderPath, sourceNode);
     }
 
     /// <summary>
@@ -460,7 +517,7 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
     /// <summary>
     /// Asynchronously navigates to a folder and loads images without blocking the UI
     /// </summary>
-    private async Task NavigateToFolderAsync(string? folderPath)
+    private async Task NavigateToFolderAsync(string? folderPath, TreeNode? sourceNode = null)
     {
         _loggingService.LogTrace("NavigateToFolderAsync START for: {Path}", folderPath);
         
@@ -487,9 +544,11 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
 
             // Clear images immediately so old tiles disappear and the grid shows blank placeholders
             Images = new ObservableCollection<ImageFile>();
+            StatusMessage = "Loading folder contents...";
 
             // Load images from the new folder asynchronously
             var images = await _fileSystemService.GetImageFilesAsync(folderPath);
+            StatusMessage = $"Found {images.Count} media file(s). Rendering tiles...";
             Images = new ObservableCollection<ImageFile>(images);
             _currentFolderPath = folderPath;
 
@@ -523,24 +582,40 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
             // Check if this folder is a favorite
             IsFavorite = _settingsService.IsFavorite(folderPath);
 
-            // Generate thumbnails
-            var visibleCount = AppConstants.ThumbnailSizes.DefaultVisibleCount;
-
             // Load random order if it was previously enabled
             var randomOrder = _settingsService.GetRandomOrder(folderPath);
             if (randomOrder != null)
             {
                 RandomEnabled = true;
                 ReorderImagesRandomly(randomOrder);
-                // After reordering, Images has been updated, so use that for thumbnails
-                _thumbnailService.GenerateThumbnailsAsync(Images.ToList(), visibleCount);
             }
             else
             {
                 RandomEnabled = false;
-                // Generate thumbnails for the normal order
-                _thumbnailService.GenerateThumbnailsAsync(images, visibleCount);
             }
+
+            var restoredAfterOrdering = lastActiveFileName != null
+                ? Images.FirstOrDefault(i => string.Equals(i.FileName, lastActiveFileName, StringComparison.OrdinalIgnoreCase))
+                : null;
+
+            if (restoredAfterOrdering != null)
+            {
+                foreach (var image in Images)
+                {
+                    image.IsActive = false;
+                }
+
+                restoredAfterOrdering.IsActive = true;
+                ActiveImage = restoredAfterOrdering;
+            }
+            else if (Images.Count > 0 && !Images.Any(i => i.IsActive))
+            {
+                Images[0].IsActive = true;
+                ActiveImage = Images[0];
+            }
+
+            RequestInitialThumbnailGeneration();
+            StatusMessage = $"Preparing visible thumbnails for {Images.Count} media file(s)...";
 
             _lastPriorityStartIndex = -1;
             _lastPriorityEndIndex = -1;
@@ -549,9 +624,20 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
             FolderNavigated?.Invoke(this, new FolderNavigationEventArgs { FolderPath = folderPath });
             
             // Expand the tree to show this folder and mark it as active
-            // Wait for the initial delay, then expand and mark the folder
-            await Task.Delay(100);
-            await ExpandAndMarkFolderAsync(folderPath);
+            // But skip this if we clicked on a shortcut - keep the shortcut selected
+            bool isViewingFromShortcut = sourceNode?.IsShortcut == true;
+            
+            if (!isViewingFromShortcut)
+            {
+                // Wait for the initial delay, then expand and mark the folder
+                await Task.Delay(100);
+                await ExpandAndMarkFolderAsync(folderPath);
+            }
+            else if (sourceNode != null)
+            {
+                // Keep the shortcut node as the active folder
+                ActiveFolder = sourceNode;
+            }
             
             // Refresh the subfolders for the active folder to show any new/deleted folders
             RefreshCurrentFolderSubfolders();
@@ -596,6 +682,7 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
 
             // Clear images immediately so old tiles disappear and the grid shows blank placeholders
             Images = new ObservableCollection<ImageFile>();
+            StatusMessage = "Loading merged folder contents...";
 
             var imageTasks = validFolders.Select(_fileSystemService.GetImageFilesAsync).ToList();
             var folderResults = await Task.WhenAll(imageTasks);
@@ -630,8 +717,7 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
                 _fileSystemService.WatchFolder(folder);
             }
 
-            var visibleCount = AppConstants.ThumbnailSizes.DefaultVisibleCount;
-            _thumbnailService.GenerateThumbnailsAsync(mergedImages, visibleCount);
+            RequestInitialThumbnailGeneration();
 
             _lastPriorityStartIndex = -1;
             _lastPriorityEndIndex = -1;
@@ -1207,6 +1293,86 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
 
         _lastPriorityStartIndex = safeStart;
         _lastPriorityEndIndex = safeEnd;
+        _thumbnailService.GenerateThumbnailsAsync(Images.ToList(), safeStart, safeEnd);
+    }
+
+    /// <summary>
+    /// Creates a subfolder under the specified parent tree node.
+    /// </summary>
+    public string CreateSubfolder(TreeNode parentNode, string folderName)
+    {
+        if (parentNode == null)
+            throw new ArgumentNullException(nameof(parentNode));
+
+        if (string.IsNullOrWhiteSpace(folderName))
+            throw new ArgumentException("Folder name cannot be empty.", nameof(folderName));
+
+        var trimmedName = folderName.Trim();
+        if (trimmedName.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
+            throw new ArgumentException("Folder name contains invalid characters.", nameof(folderName));
+
+        _fileSystemService.CreateFolder(parentNode.FullPath, trimmedName);
+        return Path.Combine(parentNode.FullPath, trimmedName);
+    }
+
+    /// <summary>
+    /// Creates a folder shortcut inside the selected virtual folder.
+    /// </summary>
+    public string AddFolderToVirtualFolder(string sourceFolderPath, string virtualFolderPath)
+    {
+        return _fileSystemService.AddFolderShortcut(sourceFolderPath, virtualFolderPath);
+    }
+
+    /// <summary>
+    /// Removes a folder shortcut represented by a tree node.
+    /// </summary>
+    public void RemoveShortcut(TreeNode shortcutNode)
+    {
+        if (shortcutNode == null)
+            throw new ArgumentNullException(nameof(shortcutNode));
+
+        if (!shortcutNode.IsShortcut || string.IsNullOrWhiteSpace(shortcutNode.ShortcutFilePath))
+            throw new InvalidOperationException("Selected node is not a removable shortcut.");
+
+        _fileSystemService.RemoveFolderShortcut(shortcutNode.ShortcutFilePath);
+    }
+
+    /// <summary>
+    /// Renames the .lnk file backing a shortcut tree node.
+    /// </summary>
+    public void RenameShortcut(TreeNode shortcutNode, string newName)
+    {
+        if (shortcutNode == null)
+            throw new ArgumentNullException(nameof(shortcutNode));
+
+        if (!shortcutNode.IsShortcut || string.IsNullOrWhiteSpace(shortcutNode.ShortcutFilePath))
+            throw new InvalidOperationException("Selected node is not a renameable shortcut.");
+
+        if (string.IsNullOrWhiteSpace(newName))
+            throw new ArgumentException("Name cannot be empty.", nameof(newName));
+
+        var trimmed = newName.Trim();
+        if (trimmed.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
+            throw new ArgumentException("Name contains invalid characters.", nameof(newName));
+
+        _fileSystemService.RenameShortcut(shortcutNode.ShortcutFilePath, trimmed);
+    }
+
+    private void RequestInitialThumbnailGeneration()
+    {
+        if (Images.Count == 0)
+            return;
+
+        var visibleCount = AppConstants.ThumbnailSizes.DefaultVisibleCount;
+        var activeIndex = ActiveImage != null ? Images.IndexOf(ActiveImage) : 0;
+        if (activeIndex < 0)
+        {
+            activeIndex = 0;
+        }
+
+        var safeStart = Math.Max(0, activeIndex - (visibleCount / 2));
+        var safeEnd = Math.Min(Images.Count - 1, safeStart + visibleCount - 1);
+
         _thumbnailService.GenerateThumbnailsAsync(Images.ToList(), safeStart, safeEnd);
     }
 
