@@ -38,11 +38,28 @@ jobs:
         # Create release package
         Compress-Archive -Path * -DestinationPath ../DaisyView-win-x64-${{ github.ref_name }}.zip
         cd ..
+
+    - name: Install Inno Setup
+      run: choco install innosetup -y
+
+    - name: Build Setup EXE
+      run: |
+        $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+        $VERSION = "${{ github.ref_name }}".TrimStart('v')
+        & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "/DMyAppVersion=$VERSION" installer.iss
+        Copy-Item installer-output\DaisyView-Setup-*.exe .\DaisyView-Setup-${{ github.ref_name }}.exe
+
+    - name: Verify release artifacts
+      run: |
+        Get-Item DaisyView-win-x64-${{ github.ref_name }}.zip | Format-List Name, Length
+        Get-Item DaisyView-Setup-${{ github.ref_name }}.exe | Format-List Name, Length
         
     - name: Create Release
       uses: softprops/action-gh-release@v2
       with:
-        files: DaisyView-win-x64-${{ github.ref_name }}.zip
+        files: |
+          DaisyView-win-x64-${{ github.ref_name }}.zip
+          DaisyView-Setup-${{ github.ref_name }}.exe
         generate_release_notes: true
         draft: false
         prerelease: ${{ contains(github.ref, 'beta') || contains(github.ref, 'alpha') }}
@@ -54,10 +71,21 @@ jobs:
           - Windows 10/11 (64-bit)
           - [.NET 8 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/8.0)
           
-          ### Installation
-          1. Download `DaisyView-win-x64-${{ github.ref_name }}.zip`
-          2. Extract all files to a folder
-          3. Run `DaisyView.exe`
+           ### Installation Options
+
+           #### Option 1: Setup EXE (Recommended)
+           1. Download DaisyView-Setup-${{ github.ref_name }}.exe
+           2. Run the installer
+           3. The installer will:
+             - Check for .NET 8 Desktop Runtime (prompts to download if missing)
+             - Install to %LOCALAPPDATA%\DaisyView
+             - Create Start Menu shortcuts
+             - Use streamlined setup flow (2-3 clicks)
+
+           #### Option 2: Portable ZIP
+           1. Download DaisyView-win-x64-${{ github.ref_name }}.zip
+           2. Extract all files to a folder
+           3. Run DaisyView.exe
           
           ### What's New
           See the automatically generated release notes below.

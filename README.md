@@ -15,9 +15,13 @@ Specific features include
 ## Installation
 
 ### From Release
-1. Download `DaisyView-win-x64.zip` from [Releases](https://github.com/kfaubel/DaisyView/releases)
+1. Download DaisyView-Setup-vX.Y.Z.exe from [Releases](https://github.com/kfaubel/DaisyView/releases) (recommended)
+2. Run the installer (streamlined setup)
+
+Alternative portable option:
+1. Download DaisyView-win-x64-vX.Y.Z.zip
 2. Extract to a folder
-3. Run `DaisyView.exe`
+3. Run DaisyView.exe
 
 ### Requirements
 - Windows 10/11 (64-bit)
@@ -73,10 +77,17 @@ The script will:
 2. Commit and push the change
 3. Create and push a `vX.Y.Z` tag
 4. GitHub Actions builds and publishes the release automatically
+5. Release includes both a portable ZIP and setup executable
+
+Quick patch release:
+
+```cmd
+release.cmd
+```
 
 ## Manually publish a new version
 
-Update the version number in the project files in AstroImages.Wpf.cproj
+Update the version number in DaisyView/DaisyView.csproj
 
 ```powershell
 # Apply a tag starting with a 'v'
