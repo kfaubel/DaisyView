@@ -49,6 +49,12 @@ public class ImageFile : INotifyPropertyChanged
     }
 
     /// <summary>
+    /// Full path to the .lnk file if this image came from a Favorites file shortcut.
+    /// Used to remove the shortcut when the user selects "Remove from favorites".
+    /// </summary>
+    public string? FavoriteShortcutFilePath { get; set; }
+
+    /// <summary>
     /// Full path to the file
     /// </summary>
     public required string FilePath { get; set; }

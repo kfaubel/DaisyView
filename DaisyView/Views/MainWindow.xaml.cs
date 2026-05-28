@@ -841,6 +841,41 @@ public partial class MainWindow : Window
         }
     }
 
+    private void Thumbnail_MouseRightButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        // First make the clicked tile the active one
+        SetActiveThumbnail(sender as FrameworkElement);
+
+        var image = (sender as FrameworkElement)?.DataContext as ImageFile;
+        if (image == null || string.IsNullOrWhiteSpace(image.FavoriteShortcutFilePath))
+            return;
+
+        var contextMenu = new ContextMenu();
+        var removeItem = new MenuItem { Header = "Remove from favorites", Tag = image };
+        removeItem.Click += (s, _) =>
+        {
+            if (s is MenuItem menuItem && menuItem.Tag is ImageFile img && !string.IsNullOrWhiteSpace(img.FavoriteShortcutFilePath))
+            {
+                try
+                {
+                    _viewModel?.RemoveFavoriteShortcut(img.FavoriteShortcutFilePath);
+                    // Refresh the current folder view
+                    if (_viewModel?.ActiveFolder != null)
+                        _viewModel.NavigateToFolder(_viewModel.ActiveFolder.FullPath, _viewModel.ActiveFolder);
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show($"Could not remove shortcut: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Warning);
+                }
+            }
+        };
+        contextMenu.Items.Add(removeItem);
+
+        contextMenu.PlacementTarget = sender as UIElement;
+        contextMenu.IsOpen = true;
+        e.Handled = true;
+    }
+
     private void SetActiveThumbnail(FrameworkElement? thumbnailElement)
     {
         if (_viewModel == null)
@@ -886,6 +921,28 @@ public partial class MainWindow : Window
         {
             _viewModel?.SelectAll();
             e.Handled = true;
+        }
+        else if (Keyboard.Modifiers == ModifierKeys.None)
+        {
+            string? slot = key switch
+            {
+                Key.D1 or Key.NumPad1 => "1",
+                Key.D2 or Key.NumPad2 => "2",
+                Key.D3 or Key.NumPad3 => "3",
+                Key.D4 or Key.NumPad4 => "4",
+                Key.D5 or Key.NumPad5 => "5",
+                Key.D6 or Key.NumPad6 => "6",
+                Key.D7 or Key.NumPad7 => "7",
+                Key.D8 or Key.NumPad8 => "8",
+                Key.D9 or Key.NumPad9 => "9",
+                Key.D0 or Key.NumPad0 => "0",
+                _ => null
+            };
+            if (slot != null)
+            {
+                _viewModel?.AddToFavoritesSlot(slot);
+                e.Handled = true;
+            }
         }
     }
 

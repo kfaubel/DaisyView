@@ -557,6 +557,7 @@
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
                                 <Grid MouseLeftButtonDown="Thumbnail_MouseLeftButtonDown"
+                                      MouseRightButtonDown="Thumbnail_MouseRightButtonDown"
                                       ToolTip="{Binding DisplayName}">
                                     <Border BorderThickness="2" 
                                             BorderBrush="{Binding IsActive, Converter={StaticResource BoolToRedBrushConverter}}"

@@ -201,8 +201,6 @@ public class FileSystemService : IDisposable
     /// <summary>
     /// Resolves a Windows shortcut (.lnk) file to get its target folder path.
     /// </summary>
-    /// <param name="shortcutPath">Full path to the .lnk file</param>
-    /// <returns>Target path, or null if resolution fails or target is not a directory</returns>
     public string? ResolveShortcutToFolder(string shortcutPath)
     {
         try
@@ -226,6 +224,75 @@ public class FileSystemService : IDisposable
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// Resolves a Windows shortcut (.lnk) file to get its target FILE path.
+    /// Returns null if the target does not exist or is a directory.
+    /// </summary>
+    public string? ResolveShortcutToFile(string shortcutPath)
+    {
+        try
+        {
+            var link = (IShellLinkW)new ShellLink();
+            var persistFile = (IPersistFile)link;
+            persistFile.Load(shortcutPath, 0);
+
+            var targetPath = new StringBuilder(260);
+            link.GetPath(targetPath, targetPath.Capacity, IntPtr.Zero, 0);
+
+            var target = targetPath.ToString();
+            if (!string.IsNullOrEmpty(target) && File.Exists(target))
+            {
+                return target;
+            }
+        }
+        catch (Exception ex)
+        {
+            _loggingService.LogTrace("Failed to resolve file shortcut {ShortcutPath}: {Message}", shortcutPath, ex.Message);
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Creates a .lnk shortcut in destFolder pointing to a specific file.
+    /// </summary>
+    public string AddFileShortcut(string targetFilePath, string destFolder)
+    {
+        if (!File.Exists(targetFilePath))
+            throw new FileNotFoundException($"Target file does not exist: {targetFilePath}");
+
+        if (!Directory.Exists(destFolder))
+            throw new DirectoryNotFoundException($"Destination folder does not exist: {destFolder}");
+
+        var baseName = Path.GetFileNameWithoutExtension(targetFilePath);
+        var shortcutPath = GetUniqueShortcutPath(destFolder, baseName);
+
+        var link = (IShellLinkW)new ShellLink();
+        link.SetPath(targetFilePath);
+        link.SetDescription($"Favorite: {targetFilePath}");
+
+        var persistFile = (IPersistFile)link;
+        persistFile.Save(shortcutPath, true);
+
+        _loggingService.LogUserAction("File shortcut created", $"{targetFilePath} -> {shortcutPath}");
+        return shortcutPath;
+    }
+
+    /// <summary>
+    /// Ensures a Favorites slot subfolder exists, creating it if needed.
+    /// Slot names are "1"-"9" and "0".
+    /// </summary>
+    public string EnsureFavoritesSlotFolder(string favoritesFolderPath, string slot)
+    {
+        var slotFolder = Path.Combine(favoritesFolderPath, slot);
+        if (!Directory.Exists(slotFolder))
+        {
+            Directory.CreateDirectory(slotFolder);
+            _loggingService.LogUserAction("Favorites slot folder created", slotFolder);
+        }
+        return slotFolder;
     }
 
     private bool HasVisibleChildren(string folderPath)
@@ -283,16 +350,17 @@ public class FileSystemService : IDisposable
                 });
             }
 
-            // Get images from shortcut folders
+            // Get images from shortcut files (folder shortcuts and file shortcuts)
             var shortcuts = directory.GetFiles("*.lnk");
             foreach (var shortcut in shortcuts)
             {
+                // First try: folder shortcut → gather all media files from target folder
                 var targetFolder = ResolveShortcutToFolder(shortcut.FullName);
                 if (targetFolder != null)
                 {
                     var shortcutName = Path.GetFileNameWithoutExtension(shortcut.Name);
                     var targetDir = new DirectoryInfo(targetFolder);
-                    
+
                     var shortcutFiles = targetDir.GetFiles()
                         .Where(f => MediaTypeHelper.IsSupportedMedia(f.FullName))
                         .OrderBy(f => f.Name)
@@ -314,8 +382,33 @@ public class FileSystemService : IDisposable
                         });
                     }
 
-                    _loggingService.LogTrace("Found {Count} images in shortcut '{ShortcutName}' -> {TargetFolder}", 
+                    _loggingService.LogTrace("Found {Count} images in shortcut '{ShortcutName}' -> {TargetFolder}",
                         shortcutFiles.Count, shortcutName, targetFolder);
+                    continue;
+                }
+
+                // Second try: file shortcut → the shortcut points directly to a media file
+                var targetFile = ResolveShortcutToFile(shortcut.FullName);
+                if (targetFile != null && MediaTypeHelper.IsSupportedMedia(targetFile))
+                {
+                    var isVideo = MediaTypeHelper.IsVideoFile(targetFile);
+                    // Use the parent folder name (slot number) as a label
+                    var slotName = Path.GetFileName(Path.GetDirectoryName(shortcut.FullName) ?? string.Empty);
+                    images.Add(new ImageFile
+                    {
+                        FileName = Path.GetFileName(targetFile),
+                        FilePath = targetFile,
+                        IsMarked = false,
+                        IsActive = false,
+                        IsVideo = isVideo,
+                        ThumbnailGenerated = false,
+                        IsFromShortcut = true,
+                        ShortcutName = slotName,
+                        FavoriteShortcutFilePath = shortcut.FullName
+                    });
+
+                    _loggingService.LogTrace("Found favorite file shortcut '{ShortcutFile}' -> {TargetFile}",
+                        shortcut.Name, targetFile);
                 }
             }
 

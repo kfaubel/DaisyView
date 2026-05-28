@@ -28,8 +28,9 @@ public partial class SlideshowWindow : Window
         private bool _isCursorHidden = false;
         private bool _audioEnabled = true;
         private Point _lastMousePosition = new();
+        private Action<string>? _onAddToFavorites;
 
-        public SlideshowWindow(List<ImageFile> images, int activeImageIndex = 0, bool audioEnabled = true, FitsImageService? fitsImageService = null)
+        public SlideshowWindow(List<ImageFile> images, int activeImageIndex = 0, bool audioEnabled = true, FitsImageService? fitsImageService = null, Action<string>? onAddToFavorites = null)
         {
             InitializeComponent();
 
@@ -37,6 +38,7 @@ public partial class SlideshowWindow : Window
             _currentImageIndex = Math.Max(0, activeImageIndex);
             _fitsImageService = fitsImageService;
             _audioEnabled = audioEnabled;
+            _onAddToFavorites = onAddToFavorites;
             // Setup video looping timer
             _videoLoopTimer = new DispatcherTimer();
             _videoLoopTimer.Interval = AppConstants.Timing.VideoLoopCheckInterval;
@@ -381,6 +383,16 @@ public partial class SlideshowWindow : Window
             case Key.F11:
                 Close();
                 break;
+            case Key.D1: case Key.NumPad1: _onAddToFavorites?.Invoke("1"); break;
+            case Key.D2: case Key.NumPad2: _onAddToFavorites?.Invoke("2"); break;
+            case Key.D3: case Key.NumPad3: _onAddToFavorites?.Invoke("3"); break;
+            case Key.D4: case Key.NumPad4: _onAddToFavorites?.Invoke("4"); break;
+            case Key.D5: case Key.NumPad5: _onAddToFavorites?.Invoke("5"); break;
+            case Key.D6: case Key.NumPad6: _onAddToFavorites?.Invoke("6"); break;
+            case Key.D7: case Key.NumPad7: _onAddToFavorites?.Invoke("7"); break;
+            case Key.D8: case Key.NumPad8: _onAddToFavorites?.Invoke("8"); break;
+            case Key.D9: case Key.NumPad9: _onAddToFavorites?.Invoke("9"); break;
+            case Key.D0: case Key.NumPad0: _onAddToFavorites?.Invoke("0"); break;
             default:
                 e.Handled = false;
                 break;

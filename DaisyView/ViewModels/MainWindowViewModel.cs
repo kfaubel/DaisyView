@@ -61,6 +61,7 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
     private List<string> _selectedFolderPaths = new();
     private bool _isMergedFolderView;
     private double _treeViewWidth = 250;
+    private string? _favoritesFolderPath;
 
     // Commands
     private ICommand? _navigateToFolderCommand;
@@ -535,6 +536,19 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
             }
 
             _loggingService.LogUserAction("Navigate to folder", folderPath);
+
+            // Track Favorites folder path if we're navigating into/through one
+            var dir = new System.IO.DirectoryInfo(folderPath);
+            var candidate = dir;
+            while (candidate != null)
+            {
+                if (string.Equals(candidate.Name, "Favorites", StringComparison.OrdinalIgnoreCase))
+                {
+                    _favoritesFolderPath = candidate.FullName;
+                    break;
+                }
+                candidate = candidate.Parent;
+            }
 
             IsMergedFolderView = false;
             _selectedFolderPaths.Clear();
@@ -1206,9 +1220,14 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
         try
         {
             var currentIndex = ActiveImage != null ? Images.IndexOf(ActiveImage) : 0;
-            var slideshowWindow = new Views.SlideshowWindow(Images.ToList(), currentIndex, AudioEnabled, _fitsImageService);
-            slideshowWindow.Owner = System.Windows.Application.Current.MainWindow;
-            slideshowWindow.ShowDialog();
+        var slideshowWindow = new Views.SlideshowWindow(
+            Images.ToList(),
+            currentIndex,
+            AudioEnabled,
+            _fitsImageService,
+            slot => AddToFavoritesSlot(slot));
+        slideshowWindow.Owner = System.Windows.Application.Current.MainWindow;
+        slideshowWindow.ShowDialog();
 
             // Update image states after slideshow closes
             var closedImages = slideshowWindow.GetImages();
@@ -1340,6 +1359,65 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
     /// <summary>
     /// Renames the .lnk file backing a shortcut tree node.
     /// </summary>
+    /// <summary>
+    /// Adds a shortcut to the active image in the specified Favorites slot folder.
+    /// Slot is "1"-"9" or "0". The Favorites folder must have been visited in this session.
+    /// </summary>
+    public void AddToFavoritesSlot(string slot)
+    {
+        var activeImagePath = ActiveImage?.FilePath;
+        if (string.IsNullOrWhiteSpace(activeImagePath) || !File.Exists(activeImagePath))
+        {
+            _loggingService.LogTrace("AddToFavoritesSlot: no active image");
+            return;
+        }
+
+        var favoritesFolderPath = _favoritesFolderPath;
+        if (string.IsNullOrWhiteSpace(favoritesFolderPath) || !Directory.Exists(favoritesFolderPath))
+        {
+            _loggingService.LogTrace("AddToFavoritesSlot: Favorites folder not known or does not exist");
+            System.Windows.Application.Current?.Dispatcher.BeginInvoke(() =>
+                StatusMessage = "No Favorites folder found. Navigate to a folder named \"Favorites\" first.");
+            return;
+        }
+
+        try
+        {
+            var slotFolder = _fileSystemService.EnsureFavoritesSlotFolder(favoritesFolderPath, slot);
+            _fileSystemService.AddFileShortcut(activeImagePath, slotFolder);
+            _loggingService.LogUserAction("Added to Favorites slot", $"Slot {slot}: {activeImagePath}");
+
+            System.Windows.Application.Current?.Dispatcher.BeginInvoke(() =>
+                StatusMessage = $"Added to Favorites slot {slot}: {Path.GetFileName(activeImagePath)}");
+        }
+        catch (Exception ex)
+        {
+            _loggingService.LogError("Failed to add to Favorites slot {Slot}", ex, slot);
+            System.Windows.Application.Current?.Dispatcher.BeginInvoke(() =>
+                StatusMessage = $"Failed to add to Favorites slot {slot}: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Removes a file shortcut (.lnk) from a Favorites slot folder.
+    /// </summary>
+    public void RemoveFavoriteShortcut(string shortcutFilePath)
+    {
+        try
+        {
+            if (File.Exists(shortcutFilePath))
+            {
+                File.Delete(shortcutFilePath);
+                _loggingService.LogUserAction("Removed Favorites shortcut", shortcutFilePath);
+            }
+        }
+        catch (Exception ex)
+        {
+            _loggingService.LogError("Failed to remove Favorites shortcut {Path}", ex, shortcutFilePath);
+            throw;
+        }
+    }
+
     public void RenameShortcut(TreeNode shortcutNode, string newName)
     {
         if (shortcutNode == null)
