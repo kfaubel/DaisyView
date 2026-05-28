@@ -1,6 +1,9 @@
 @echo off
-REM Quick release script - bumps patch version
-REM For more control, use: .\release.ps1 [major|minor|patch]
+REM Quick release script - bumps version level
+REM Usage: release.cmd [major|minor|patch]  (default: patch)
 
-echo Running automated release...
-powershell -ExecutionPolicy Bypass -File release.ps1 patch
+SET BUMP=%1
+IF "%BUMP%"=="" SET BUMP=patch
+
+echo Running automated release (%BUMP%)...
+powershell -ExecutionPolicy Bypass -File release.ps1 %BUMP%
