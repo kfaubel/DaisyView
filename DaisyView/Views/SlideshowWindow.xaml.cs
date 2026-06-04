@@ -21,14 +21,18 @@ public partial class SlideshowWindow : Window
 {
     private List<ImageFile> _images = new();
     private int _currentImageIndex;
-        private DispatcherTimer? _videoLoopTimer;
-        private bool _isPlayingGif = false;
-        private DispatcherTimer? _cursorHideTimer;
-        private FitsImageService? _fitsImageService;
-        private bool _isCursorHidden = false;
-        private bool _audioEnabled = true;
-        private Point _lastMousePosition = new();
-        private Action<string>? _onAddToFavorites;
+    private DispatcherTimer? _videoLoopTimer;
+    private bool _mediaReadyForLooping = false;
+    private DispatcherTimer? _gifAnimationTimer;
+    private List<System.Windows.Media.Imaging.BitmapSource>? _gifFrames;
+    private List<TimeSpan>? _gifFrameDurations;
+    private int _gifFrameIndex = 0;
+    private DispatcherTimer? _cursorHideTimer;
+    private FitsImageService? _fitsImageService;
+    private bool _isCursorHidden = false;
+    private bool _audioEnabled = true;
+    private Point _lastMousePosition = new();
+    private Action<string>? _onAddToFavorites;
 
         public SlideshowWindow(List<ImageFile> images, int activeImageIndex = 0, bool audioEnabled = true, FitsImageService? fitsImageService = null, Action<string>? onAddToFavorites = null)
         {
@@ -48,6 +52,11 @@ public partial class SlideshowWindow : Window
             _cursorHideTimer = new DispatcherTimer();
             _cursorHideTimer.Interval = AppConstants.Timing.CursorHideDelay;
             _cursorHideTimer.Tick += CursorHideTimer_Tick;
+
+            // Setup GIF frame animation timer
+            _gifAnimationTimer = new DispatcherTimer();
+            _gifAnimationTimer.Interval = TimeSpan.FromMilliseconds(100);
+            _gifAnimationTimer.Tick += GifAnimationTimer_Tick;
             
             // Ensure cursor is visible initially
             Mouse.OverrideCursor = null;
@@ -69,6 +78,7 @@ public partial class SlideshowWindow : Window
             Closed += (s, e) => 
             {
                 _videoLoopTimer?.Stop();
+                StopGifAnimation();
                 _cursorHideTimer?.Stop();
                 // Restore cursor visibility when closing slideshow
                 Mouse.OverrideCursor = null;
@@ -96,10 +106,10 @@ public partial class SlideshowWindow : Window
         {
             try
             {
+                _mediaReadyForLooping = true;
+
                 // File is loaded and ready, start playback
-                // GIFs loop via MediaEnded; only use timer for video files
-                if (!_isPlayingGif)
-                    _videoLoopTimer?.Start();
+                _videoLoopTimer?.Start();
                 VideoDisplay.Play();
             }
             catch (Exception ex)
@@ -114,15 +124,7 @@ public partial class SlideshowWindow : Window
         /// </summary>
         private void VideoDisplay_MediaEnded(object? sender, RoutedEventArgs e)
         {
-            try
-            {
-                VideoDisplay.Position = TimeSpan.Zero;
-                VideoDisplay.Play();
-            }
-            catch
-            {
-                // Ignore transient playback state issues.
-            }
+            RestartPlaybackFromStart();
         }
 
         /// <summary>
@@ -132,8 +134,7 @@ public partial class SlideshowWindow : Window
         {
             try
             {
-                // GIFs use MediaEnded for looping; skip timer-based looping for them
-                if (_isPlayingGif)
+                if (!_mediaReadyForLooping || VideoDisplay.Source == null)
                     return;
 
                 if (VideoDisplay.Source != null && VideoDisplay.NaturalDuration.HasTimeSpan)
@@ -141,15 +142,29 @@ public partial class SlideshowWindow : Window
                     // Check if video has finished playing
                     if (VideoDisplay.Position >= VideoDisplay.NaturalDuration.TimeSpan - AppConstants.Timing.VideoLoopCheckInterval)
                     {
-                        // Reset to beginning and play again
-                        VideoDisplay.Position = TimeSpan.Zero;
-                        VideoDisplay.Play();
+                        RestartPlaybackFromStart();
                     }
                 }
             }
             catch
             {
                 // Silently handle any timing issues
+            }
+        }
+
+        /// <summary>
+        /// Restarts playback from the beginning.
+        /// </summary>
+        private void RestartPlaybackFromStart()
+        {
+            try
+            {
+                VideoDisplay.Position = TimeSpan.Zero;
+                VideoDisplay.Play();
+            }
+            catch
+            {
+                // Ignore transient playback state issues.
             }
         }
 
@@ -165,7 +180,11 @@ public partial class SlideshowWindow : Window
             
             try
             {
-                if (ShouldPlayAsVideo(currentImage))
+                if (MediaTypeHelper.IsGif(currentImage.FilePath))
+                {
+                    HandleGifDisplay(currentImage);
+                }
+                else if (ShouldPlayAsVideo(currentImage))
                 {
                     HandleVideoDisplay(currentImage);
                 }
@@ -187,7 +206,7 @@ public partial class SlideshowWindow : Window
         /// </summary>
         private static bool ShouldPlayAsVideo(ImageFile image)
         {
-            return image.IsVideo || MediaTypeHelper.IsGif(image.FilePath);
+            return image.IsVideo;
         }
 
         /// <summary>
@@ -199,13 +218,65 @@ public partial class SlideshowWindow : Window
         }
 
         /// <summary>
+        /// Displays and animates a GIF using frame metadata for reliable looping.
+        /// </summary>
+        private void HandleGifDisplay(ImageFile currentImage)
+        {
+            _videoLoopTimer?.Stop();
+            _mediaReadyForLooping = false;
+            VideoDisplay.Stop();
+            VideoDisplay.Source = null;
+
+            StopGifAnimation();
+
+            var fullPath = System.IO.Path.GetFullPath(currentImage.FilePath);
+            if (!System.IO.File.Exists(fullPath))
+                throw new InvalidOperationException($"GIF file not found: {fullPath}");
+
+            var gifDecoder = new System.Windows.Media.Imaging.GifBitmapDecoder(
+                new Uri(fullPath, UriKind.Absolute),
+                System.Windows.Media.Imaging.BitmapCreateOptions.PreservePixelFormat,
+                System.Windows.Media.Imaging.BitmapCacheOption.OnLoad);
+
+            if (gifDecoder.Frames.Count == 0)
+                throw new InvalidOperationException("GIF contains no frames.");
+
+            _gifFrames = new List<System.Windows.Media.Imaging.BitmapSource>(gifDecoder.Frames.Count);
+            _gifFrameDurations = new List<TimeSpan>(gifDecoder.Frames.Count);
+            _gifFrameIndex = 0;
+
+            foreach (var frame in gifDecoder.Frames)
+            {
+                if (frame.CanFreeze)
+                    frame.Freeze();
+
+                _gifFrames.Add(frame);
+                _gifFrameDurations.Add(GetGifFrameDelay(frame));
+            }
+
+            VideoDisplay.Visibility = Visibility.Collapsed;
+            VideoNotSupportedOverlay.Visibility = Visibility.Collapsed;
+            ImageDisplay.Visibility = Visibility.Visible;
+            ImageDisplay.Source = _gifFrames[0];
+
+            if (_gifFrames.Count > 1)
+            {
+                _gifAnimationTimer ??= new DispatcherTimer();
+                _gifAnimationTimer.Interval = _gifFrameDurations[0];
+                _gifAnimationTimer.Start();
+            }
+        }
+
+        /// <summary>
         /// Displays a static image
         /// </summary>
         private void HandleStaticImageDisplay(ImageFile currentImage)
         {
             _videoLoopTimer?.Stop();
+            _mediaReadyForLooping = false;
             VideoDisplay.Stop();
             VideoDisplay.Source = null;
+            StopGifAnimation();
 
             System.Windows.Media.Imaging.BitmapSource? imageSource = null;
 
@@ -249,8 +320,10 @@ public partial class SlideshowWindow : Window
         private void HandleDisplayError(ImageFile currentImage, Exception ex)
         {
             _videoLoopTimer?.Stop();
+            _mediaReadyForLooping = false;
             VideoDisplay.Stop();
             VideoDisplay.Source = null;
+            StopGifAnimation();
             VideoDisplay.Visibility = Visibility.Collapsed;
             VideoNotSupportedOverlay.Visibility = Visibility.Collapsed;
             ImageDisplay.Visibility = Visibility.Visible;
@@ -268,8 +341,10 @@ public partial class SlideshowWindow : Window
             {
                 // Fully stop and clear the previous video
                 _videoLoopTimer?.Stop();
+                _mediaReadyForLooping = false;
                 VideoDisplay.Stop();
                 VideoDisplay.Source = null;
+                StopGifAnimation();
                 
                 // Ensure we have a valid file path
                 if (!System.IO.File.Exists(videoPath))
@@ -287,9 +362,6 @@ public partial class SlideshowWindow : Window
                     FileNameDisplay.Foreground = System.Windows.Media.Brushes.Yellow;
                     return;
                 }
-
-                // Track whether this is a GIF to choose looping strategy
-                _isPlayingGif = MediaTypeHelper.IsGif(videoPath);
 
                 // Create proper file:// URI for MediaElement
                 var fullPath = System.IO.Path.GetFullPath(videoPath);
@@ -311,6 +383,61 @@ public partial class SlideshowWindow : Window
                 FileNameDisplay.Foreground = System.Windows.Media.Brushes.Yellow;
             }
         }
+
+    /// <summary>
+    /// Advances GIF animation frames based on embedded per-frame delays.
+    /// </summary>
+    private void GifAnimationTimer_Tick(object? sender, EventArgs e)
+    {
+        if (_gifFrames == null || _gifFrames.Count == 0 || _gifFrameDurations == null)
+            return;
+
+        _gifFrameIndex = (_gifFrameIndex + 1) % _gifFrames.Count;
+        ImageDisplay.Source = _gifFrames[_gifFrameIndex];
+        _gifAnimationTimer!.Interval = _gifFrameDurations[_gifFrameIndex];
+    }
+
+    /// <summary>
+    /// Stops GIF animation and clears associated frame state.
+    /// </summary>
+    private void StopGifAnimation()
+    {
+        _gifAnimationTimer?.Stop();
+        _gifFrames = null;
+        _gifFrameDurations = null;
+        _gifFrameIndex = 0;
+    }
+
+    /// <summary>
+    /// Reads frame delay metadata from a GIF frame.
+    /// </summary>
+    private static TimeSpan GetGifFrameDelay(System.Windows.Media.Imaging.BitmapFrame frame)
+    {
+        const int defaultDelayCentiseconds = 10;
+        int delayCentiseconds = defaultDelayCentiseconds;
+
+        if (frame.Metadata is System.Windows.Media.Imaging.BitmapMetadata metadata && metadata.ContainsQuery("/grctlext/Delay"))
+        {
+            object? delayValue = metadata.GetQuery("/grctlext/Delay");
+            if (delayValue is ushort ushortDelay)
+            {
+                delayCentiseconds = ushortDelay;
+            }
+            else if (delayValue is byte byteDelay)
+            {
+                delayCentiseconds = byteDelay;
+            }
+            else if (delayValue is int intDelay)
+            {
+                delayCentiseconds = intDelay;
+            }
+        }
+
+        if (delayCentiseconds <= 1)
+            delayCentiseconds = defaultDelayCentiseconds;
+
+        return TimeSpan.FromMilliseconds(delayCentiseconds * 10.0);
+    }
 
     /// <summary>
     /// Moves to the next image, wrapping to the first image if at the end

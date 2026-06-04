@@ -62,6 +62,7 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
     private bool _isMergedFolderView;
     private double _treeViewWidth = 250;
     private string? _favoritesFolderPath;
+    private readonly List<string> _navigationHistory = new();
 
     // Commands
     private ICommand? _navigateToFolderCommand;
@@ -493,7 +494,7 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
     /// <summary>
     /// Navigates to a specific folder
     /// </summary>
-    public void NavigateToFolder(string? folderPath, TreeNode? sourceNode = null)
+    public void NavigateToFolder(string? folderPath, TreeNode? sourceNode = null, bool addToHistory = true)
     {
         _loggingService.LogTrace("NavigateToFolder called with: {Path}", folderPath ?? "null");
         if (string.IsNullOrEmpty(folderPath))
@@ -501,7 +502,7 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
             return;
         }
 
-        _ = NavigateToFolderAsync(folderPath, sourceNode);
+        _ = NavigateToFolderAsync(folderPath, sourceNode, addToHistory);
     }
 
     /// <summary>
@@ -518,7 +519,7 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
     /// <summary>
     /// Asynchronously navigates to a folder and loads images without blocking the UI
     /// </summary>
-    private async Task NavigateToFolderAsync(string? folderPath, TreeNode? sourceNode = null)
+    private async Task NavigateToFolderAsync(string? folderPath, TreeNode? sourceNode = null, bool addToHistory = true)
     {
         _loggingService.LogTrace("NavigateToFolderAsync START for: {Path}", folderPath);
         
@@ -536,6 +537,14 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
             }
 
             _loggingService.LogUserAction("Navigate to folder", folderPath);
+
+            // Record history before changing path
+            if (addToHistory && _currentFolderPath != null && !string.Equals(_currentFolderPath, folderPath, StringComparison.OrdinalIgnoreCase))
+            {
+                _navigationHistory.Add(_currentFolderPath);
+                if (_navigationHistory.Count > 100)
+                    _navigationHistory.RemoveAt(0);
+            }
 
             // Track Favorites folder path if we're navigating into/through one
             var dir = new System.IO.DirectoryInfo(folderPath);
@@ -1396,6 +1405,62 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
             System.Windows.Application.Current?.Dispatcher.BeginInvoke(() =>
                 StatusMessage = $"Failed to add to Favorites slot {slot}: {ex.Message}");
         }
+    }
+
+    /// <summary>
+    /// Navigates to the previous folder in the session history.
+    /// </summary>
+    public void NavigateBack()
+    {
+        if (_navigationHistory.Count > 0)
+        {
+            var lastPath = _navigationHistory[^1];
+            _navigationHistory.RemoveAt(_navigationHistory.Count - 1);
+            
+            _loggingService.LogUserAction("Navigate back", lastPath);
+            NavigateToFolder(lastPath, addToHistory: false);
+        }
+    }
+
+    /// <summary>
+    /// Jumps to the next Favorites subfolder (1, 2, ..., 0).
+    /// </summary>
+    public void JumpToNextFavoriteFolder()
+    {
+        if (string.IsNullOrWhiteSpace(_favoritesFolderPath) || !Directory.Exists(_favoritesFolderPath))
+        {
+            _loggingService.LogTrace("JumpToNextFavoriteFolder: No Favorites folder known");
+            return;
+        }
+
+        // Slot folder names in defined order
+        var slots = new[] { "1", "2", "3", "4", "5", "6", "7", "8", "9", "0" };
+        var subfolders = slots
+            .Select(s => Path.Combine(_favoritesFolderPath, s))
+            .Where(Directory.Exists)
+            .ToList();
+
+        if (subfolders.Count == 0)
+        {
+            _loggingService.LogTrace("JumpToNextFavoriteFolder: No slot subfolders found, jumping to Favorites root");
+            NavigateToFolder(_favoritesFolderPath);
+            return;
+        }
+
+        // Find current position if we are already in or under a slot subfolder
+        var currentIndex = subfolders.FindIndex(f => 
+            string.Equals(f, _currentFolderPath, StringComparison.OrdinalIgnoreCase) ||
+            (_currentFolderPath ?? "").StartsWith(f + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase));
+        
+        int nextIndex = 0;
+        if (currentIndex != -1)
+        {
+            nextIndex = (currentIndex + 1) % subfolders.Count;
+        }
+        
+        var targetPath = subfolders[nextIndex];
+        _loggingService.LogUserAction("Jump to favorite subfolder", targetPath);
+        NavigateToFolder(targetPath);
     }
 
     /// <summary>
