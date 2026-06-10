@@ -14,13 +14,21 @@
             <RowDefinition Height="40" />
         </Grid.RowDefinitions>
 
-        <!-- Image Display -->
+        <!-- Image Display (static images) -->
         <Image x:Name="ImageDisplay" 
                Grid.Row="0"
                Stretch="Uniform"
                HorizontalAlignment="Center"
                VerticalAlignment="Center"
                Visibility="Visible" />
+
+        <!-- GIF Display (XamlAnimatedGif handles compositing and infinite looping) -->
+        <Image x:Name="GifDisplay"
+               Grid.Row="0"
+               Stretch="Uniform"
+               HorizontalAlignment="Center"
+               VerticalAlignment="Center"
+               Visibility="Collapsed" />
 
         <!-- Video Display -->
         <MediaElement x:Name="VideoDisplay"

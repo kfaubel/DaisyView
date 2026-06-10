@@ -637,13 +637,12 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
                 ActiveImage = Images[0];
             }
 
-            RequestInitialThumbnailGeneration();
-            StatusMessage = $"Preparing visible thumbnails for {Images.Count} media file(s)...";
-
             _lastPriorityStartIndex = -1;
             _lastPriorityEndIndex = -1;
 
-            // Fire navigation event
+            // Fire navigation event - the view's ViewModel_PropertyChanged handler already
+            // called ScheduleVisibleThumbnailPriorityUpdate when Images was assigned above,
+            // which will start thumbnail generation with the real visible range after 40 ms.
             FolderNavigated?.Invoke(this, new FolderNavigationEventArgs { FolderPath = folderPath });
             
             // Expand the tree to show this folder and mark it as active
@@ -739,8 +738,6 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
             {
                 _fileSystemService.WatchFolder(folder);
             }
-
-            RequestInitialThumbnailGeneration();
 
             _lastPriorityStartIndex = -1;
             _lastPriorityEndIndex = -1;
@@ -1501,23 +1498,11 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
         _fileSystemService.RenameShortcut(shortcutNode.ShortcutFilePath, trimmed);
     }
 
-    private void RequestInitialThumbnailGeneration()
-    {
-        if (Images.Count == 0)
-            return;
-
-        var visibleCount = AppConstants.ThumbnailSizes.DefaultVisibleCount;
-        var activeIndex = ActiveImage != null ? Images.IndexOf(ActiveImage) : 0;
-        if (activeIndex < 0)
-        {
-            activeIndex = 0;
-        }
-
-        var safeStart = Math.Max(0, activeIndex - (visibleCount / 2));
-        var safeEnd = Math.Min(Images.Count - 1, safeStart + visibleCount - 1);
-
-        _thumbnailService.GenerateThumbnailsAsync(Images.ToList(), safeStart, safeEnd);
-    }
+    // RequestInitialThumbnailGeneration removed: the view's ViewModel_PropertyChanged
+    // handler triggers ScheduleVisibleThumbnailPriorityUpdate when the Images collection
+    // is assigned, which calls UpdateVisibleThumbnailPriority after 40 ms with the actual
+    // on-screen visible range. Starting generation before that point used a hard-coded
+    // estimate and caused wasted work plus a cancel/restart cycle.
 
     /// <summary>
     /// Cleans up resources

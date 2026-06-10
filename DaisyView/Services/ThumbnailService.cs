@@ -5,6 +5,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Media.Imaging;
+using System.Windows.Threading;
 using DaisyView.Constants;
 using DaisyView.Helpers;
 using DaisyView.Models;
@@ -22,7 +23,6 @@ public class ThumbnailService : IDisposable
     private readonly LoggingService _loggingService;
     private readonly FitsImageService _fitsImageService;
     private CancellationTokenSource? _backgroundTaskCancellation;
-    private static readonly object LockObject = new();
     private volatile int _currentThumbnailSize = 200; // Default size - volatile for thread safety
     private bool _disposed = false;
     
@@ -144,15 +144,16 @@ public class ThumbnailService : IDisposable
 
             // Generate thumbnail on background thread
             var thumbnailData = await Task.Run(() => GenerateThumbnailData(imageFile), token);
-            
+
             if (thumbnailData != null)
             {
-                lock (LockObject)
+                // Set properties on the UI thread at Background priority so thumbnail updates
+                // never block user input (Input priority = 5 > Background priority = 4).
+                await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
                 {
-                    // Set data first, then generated flag to trigger single notification
                     imageFile.ThumbnailData = thumbnailData;
                     imageFile.ThumbnailGenerated = true;
-                }
+                }, DispatcherPriority.Background, token);
             }
         }
         catch (OperationCanceledException)
