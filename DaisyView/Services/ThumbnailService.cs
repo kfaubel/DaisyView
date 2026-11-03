@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using DaisyView.Constants;
@@ -179,7 +180,12 @@ public class ThumbnailService : IDisposable
 
             if (imageFile.IsVideo)
             {
-                bitmapSource = CreateVideoPlaceholder(thumbnailSize);
+                if (MediaTypeHelper.IsMpeg(imageFile.FilePath) || MediaTypeHelper.IsMp4(imageFile.FilePath))
+                {
+                    bitmapSource = TryExtractVideoThumbnail(imageFile.FilePath, thumbnailSize);
+                }
+
+                bitmapSource ??= CreateVideoPlaceholder(thumbnailSize);
             }
             else if (MediaTypeHelper.IsFitsFile(imageFile.FilePath))
             {
@@ -215,6 +221,145 @@ public class ThumbnailService : IDisposable
                 imageFile.FileName, ex.Message);
             return null;
         }
+    }
+
+    /// <summary>
+    /// Attempts to extract a thumbnail frame from a video on an STA thread.
+    /// Returns null when extraction fails so caller can use placeholder fallback.
+    /// </summary>
+    private BitmapSource? TryExtractVideoThumbnail(string videoPath, int thumbnailSize)
+    {
+        BitmapSource? result = null;
+        Exception? extractionException = null;
+
+        var thread = new Thread(() =>
+        {
+            try
+            {
+                result = ExtractVideoThumbnailOnSta(videoPath, thumbnailSize);
+            }
+            catch (Exception ex)
+            {
+                extractionException = ex;
+            }
+        });
+
+        thread.IsBackground = true;
+        thread.SetApartmentState(ApartmentState.STA);
+        thread.Start();
+
+        if (!thread.Join(3000))
+        {
+            _loggingService.LogTrace("Video thumbnail extraction timed out for {Path}", videoPath);
+            return null;
+        }
+
+        if (extractionException != null)
+        {
+            _loggingService.LogTrace("Video thumbnail extraction failed for {Path}: {Message}", videoPath, extractionException.Message);
+            return null;
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Extracts a representative frame from the video using MediaPlayer.
+    /// Must run on an STA thread.
+    /// </summary>
+    private static BitmapSource? ExtractVideoThumbnailOnSta(string videoPath, int thumbnailSize)
+    {
+        using var openedSignal = new AutoResetEvent(false);
+        using var failedSignal = new AutoResetEvent(false);
+
+        var player = new MediaPlayer
+        {
+            ScrubbingEnabled = true,
+            Volume = 0,
+            IsMuted = true
+        };
+
+        Exception? mediaError = null;
+        player.MediaOpened += (_, _) => openedSignal.Set();
+        player.MediaFailed += (_, e) =>
+        {
+            mediaError = e.ErrorException;
+            failedSignal.Set();
+        };
+
+        try
+        {
+            player.Open(new Uri(videoPath, UriKind.Absolute));
+
+            var waitStart = DateTime.UtcNow;
+            while ((DateTime.UtcNow - waitStart).TotalMilliseconds < 1500)
+            {
+                if (failedSignal.WaitOne(0))
+                    return null;
+
+                if (openedSignal.WaitOne(0))
+                    break;
+
+                PumpDispatcher(TimeSpan.FromMilliseconds(20));
+            }
+
+            if (mediaError != null)
+                return null;
+
+            if (player.NaturalVideoWidth <= 0 || player.NaturalVideoHeight <= 0)
+                return null;
+
+            if (player.NaturalDuration.HasTimeSpan && player.NaturalDuration.TimeSpan > TimeSpan.FromMilliseconds(250))
+            {
+                var durationMs = player.NaturalDuration.TimeSpan.TotalMilliseconds;
+                var captureMs = Math.Min(1000.0, Math.Max(100.0, durationMs * 0.10));
+                player.Position = TimeSpan.FromMilliseconds(captureMs);
+                PumpDispatcher(TimeSpan.FromMilliseconds(120));
+            }
+            else
+            {
+                PumpDispatcher(TimeSpan.FromMilliseconds(80));
+            }
+
+            var sourceWidth = player.NaturalVideoWidth;
+            var sourceHeight = player.NaturalVideoHeight;
+            var scale = Math.Min((double)thumbnailSize / sourceWidth, (double)thumbnailSize / sourceHeight);
+            var renderWidth = Math.Max(1, (int)Math.Round(sourceWidth * scale));
+            var renderHeight = Math.Max(1, (int)Math.Round(sourceHeight * scale));
+
+            var visual = new DrawingVisual();
+            using (var context = visual.RenderOpen())
+            {
+                context.DrawVideo(player, new System.Windows.Rect(0, 0, renderWidth, renderHeight));
+            }
+
+            var target = new RenderTargetBitmap(renderWidth, renderHeight, 96, 96, PixelFormats.Pbgra32);
+            target.Render(visual);
+            target.Freeze();
+            return target;
+        }
+        finally
+        {
+            player.Close();
+        }
+    }
+
+    private static void PumpDispatcher(TimeSpan duration)
+    {
+        var frame = new DispatcherFrame();
+        var timer = new DispatcherTimer(DispatcherPriority.Background)
+        {
+            Interval = duration
+        };
+
+        timer.Tick += (_, _) =>
+        {
+            timer.Stop();
+            frame.Continue = false;
+        };
+
+        timer.Start();
+        Dispatcher.PushFrame(frame);
     }
 
     /// <summary>

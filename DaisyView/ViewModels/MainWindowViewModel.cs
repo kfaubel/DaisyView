@@ -64,6 +64,7 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
     private string? _favoritesFolderPath;
     private string? _currentViewStateKey;
     private readonly List<string> _navigationHistory = new();
+    private bool _isSlideshowOpen;
 
     // Commands
     private ICommand? _navigateToFolderCommand;
@@ -227,6 +228,16 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
         set { _isNavigating = value; }
     }
 
+    /// <summary>
+    /// Gets whether fullscreen slideshow is currently open.
+    /// Used to suppress non-essential UI refresh churn while animated media is playing.
+    /// </summary>
+    public bool IsSlideshowOpen
+    {
+        get => _isSlideshowOpen;
+        private set => _isSlideshowOpen = value;
+    }
+
     public bool IsMergedFolderView
     {
         get => _isMergedFolderView;
@@ -305,6 +316,12 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
     /// </summary>
     private void OnFileSystemChanged(object? sender, System.IO.FileSystemEventArgs e)
     {
+        if (IsSlideshowOpen)
+        {
+            _loggingService.LogTrace("Skipping file system refresh during slideshow: {ChangeType} - {Path}", e.ChangeType, e.FullPath);
+            return;
+        }
+
         _loggingService.LogTrace("File system change detected: {ChangeType} - {Path}", e.ChangeType, e.FullPath);
 
         // Refresh the current folder view on the UI thread
@@ -1317,6 +1334,7 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
 
         try
         {
+            IsSlideshowOpen = true;
             var currentIndex = ActiveImage != null ? Images.IndexOf(ActiveImage) : 0;
         var slideshowWindow = new Views.SlideshowWindow(
             Images.ToList(),
@@ -1360,6 +1378,10 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
         catch (Exception ex)
         {
             _loggingService.LogError("Failed to open slideshow", ex);
+        }
+        finally
+        {
+            IsSlideshowOpen = false;
         }
     }
 

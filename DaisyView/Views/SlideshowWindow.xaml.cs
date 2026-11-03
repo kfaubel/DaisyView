@@ -31,6 +31,7 @@ public partial class SlideshowWindow : Window
     private bool _audioEnabled = true;
     private Point _lastMousePosition = new();
     private Action<string>? _onAddToFavorites;
+    private bool _isSkippingUnsupported = false;
 
         public SlideshowWindow(List<ImageFile> images, int activeImageIndex = 0, bool audioEnabled = true, FitsImageService? fitsImageService = null, Action<string>? onAddToFavorites = null)
         {
@@ -89,9 +90,8 @@ public partial class SlideshowWindow : Window
         private void VideoDisplay_MediaFailed(object? sender, System.Windows.ExceptionRoutedEventArgs e)
         {
             _videoLoopTimer?.Stop();
-            var errorMsg = e.ErrorException?.Message ?? "Unknown error";
-            FileNameDisplay.Text = $"Media error: {errorMsg}";
-            FileNameDisplay.Foreground = System.Windows.Media.Brushes.Yellow;
+            _mediaReadyForLooping = false;
+            SkipUnsupportedAndContinue();
         }
 
         /// <summary>
@@ -173,6 +173,12 @@ public partial class SlideshowWindow : Window
                 return;
 
             var currentImage = _images[_currentImageIndex];
+
+            if (!CanDisplayInSlideshow(currentImage))
+            {
+                SkipUnsupportedAndContinue();
+                return;
+            }
             
             try
             {
@@ -182,7 +188,11 @@ public partial class SlideshowWindow : Window
                 }
                 else if (ShouldPlayAsVideo(currentImage))
                 {
-                    HandleVideoDisplay(currentImage);
+                    if (!HandleVideoDisplay(currentImage))
+                    {
+                        SkipUnsupportedAndContinue();
+                        return;
+                    }
                 }
                 else
                 {
@@ -206,11 +216,26 @@ public partial class SlideshowWindow : Window
         }
 
         /// <summary>
+        /// Determines if the file can be displayed in slideshow mode.
+        /// Non-MP4 videos are treated as unsupported and skipped silently.
+        /// </summary>
+        private static bool CanDisplayInSlideshow(ImageFile image)
+        {
+            if (MediaTypeHelper.IsGif(image.FilePath))
+                return true;
+
+            if (image.IsVideo)
+                return MediaTypeHelper.IsMp4(image.FilePath) || MediaTypeHelper.IsMpeg(image.FilePath);
+
+            return true;
+        }
+
+        /// <summary>
         /// Handles video file display
         /// </summary>
-        private void HandleVideoDisplay(ImageFile currentImage)
+        private bool HandleVideoDisplay(ImageFile currentImage)
         {
-            PlayVideo(currentImage.FilePath);
+            return PlayVideo(currentImage.FilePath);
         }
 
         /// <summary>
@@ -305,7 +330,7 @@ public partial class SlideshowWindow : Window
         /// <summary>
         /// Displays a video by playing it in the MediaElement
         /// </summary>
-        private void PlayVideo(string videoPath)
+        private bool PlayVideo(string videoPath)
         {
             try
             {
@@ -319,18 +344,14 @@ public partial class SlideshowWindow : Window
                 // Ensure we have a valid file path
                 if (!System.IO.File.Exists(videoPath))
                 {
-                    FileNameDisplay.Text = $"Video file not found: {videoPath}";
-                    FileNameDisplay.Foreground = System.Windows.Media.Brushes.Yellow;
-                    return;
+                    return false;
                 }
 
                 // Verify file size to ensure it's a valid file
                 var fileInfo = new System.IO.FileInfo(videoPath);
                 if (fileInfo.Length == 0)
                 {
-                    FileNameDisplay.Text = $"Error: Video file is empty";
-                    FileNameDisplay.Foreground = System.Windows.Media.Brushes.Yellow;
-                    return;
+                    return false;
                 }
 
                 // Create proper file:// URI for MediaElement
@@ -346,13 +367,47 @@ public partial class SlideshowWindow : Window
                 // The MediaOpened event will fire when the file is ready to play
                 VideoDisplay.Source = fileUri;
                 VideoDisplay.Volume = _audioEnabled ? 1.0 : 0.0;
+                return true;
             }
-            catch (Exception ex)
+            catch
             {
-                FileNameDisplay.Text = $"Error playing video: {ex.Message}";
-                FileNameDisplay.Foreground = System.Windows.Media.Brushes.Yellow;
+                return false;
             }
         }
+
+    /// <summary>
+    /// Silently advances to the next displayable file.
+    /// </summary>
+    private void SkipUnsupportedAndContinue()
+    {
+        if (_isSkippingUnsupported)
+            return;
+
+        if (_images.Count <= 1)
+            return;
+
+        _isSkippingUnsupported = true;
+        try
+        {
+            var startIndex = _currentImageIndex;
+            do
+            {
+                _currentImageIndex = (_currentImageIndex + 1) % _images.Count;
+                var candidate = _images[_currentImageIndex];
+
+                if (CanDisplayInSlideshow(candidate))
+                {
+                    DisplayCurrentImage();
+                    return;
+                }
+            }
+            while (_currentImageIndex != startIndex);
+        }
+        finally
+        {
+            _isSkippingUnsupported = false;
+        }
+    }
 
     /// <summary>
     /// Stops XamlAnimatedGif playback and hides the GIF display element.

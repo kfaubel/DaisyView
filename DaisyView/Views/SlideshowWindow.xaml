@@ -28,6 +28,8 @@
                Stretch="Uniform"
                HorizontalAlignment="Center"
                VerticalAlignment="Center"
+             RenderOptions.BitmapScalingMode="LowQuality"
+             SnapsToDevicePixels="True"
                Visibility="Collapsed" />
 
         <!-- Video Display -->
