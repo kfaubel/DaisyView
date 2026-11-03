@@ -1,5 +1,6 @@
 using System;
 using System.Diagnostics;
+using System.Reflection;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Media;
@@ -33,8 +34,12 @@ public partial class App : Application
             
             _loggingService = new LoggingService(_settingsService);
             LogStartupTime("LoggingService initialized");
-            
-            _updateCheckService = new UpdateCheckService(_loggingService);
+
+            var appSettings = _settingsService.GetSettings();
+            _updateCheckService = new UpdateCheckService(
+                _loggingService,
+                appSettings.UpdateGitHubOwner,
+                appSettings.UpdateGitHubRepo);
             LogStartupTime("UpdateCheckService initialized");
 
             _loggingService.LogInfo("=== DaisyView Application Started ===");
@@ -160,7 +165,7 @@ public partial class App : Application
             
             if (latestRelease != null)
             {
-                var currentVersion = "1.0.0"; // TODO: Read from assembly version
+                var currentVersion = Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "0.0.0";
                 
                 if (UpdateCheckService.IsNewerVersion(currentVersion, latestRelease.TagName ?? ""))
                 {

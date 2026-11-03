@@ -89,4 +89,14 @@ public class AppSettings
     /// Width of the tree view panel in pixels
     /// </summary>
     public double TreeViewWidth { get; set; } = 250;
+
+    /// <summary>
+    /// GitHub owner used for update checks.
+    /// </summary>
+    public string UpdateGitHubOwner { get; set; } = "kfaubel";
+
+    /// <summary>
+    /// GitHub repository name used for update checks.
+    /// </summary>
+    public string UpdateGitHubRepo { get; set; } = "DaisyView";
 }

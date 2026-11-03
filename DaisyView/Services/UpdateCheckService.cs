@@ -14,13 +14,15 @@ namespace DaisyView.Services;
 public class UpdateCheckService
 {
     private readonly LoggingService _loggingService;
-    private readonly string _githubOwner = "ken";  // TODO: Update with actual GitHub owner
-    private readonly string _githubRepo = "DaisyView";
+    private readonly string _githubOwner;
+    private readonly string _githubRepo;
     private const string GitHubApiUrl = "https://api.github.com";
 
-    public UpdateCheckService(LoggingService loggingService)
+    public UpdateCheckService(LoggingService loggingService, string githubOwner = "kfaubel", string githubRepo = "DaisyView")
     {
         _loggingService = loggingService;
+        _githubOwner = string.IsNullOrWhiteSpace(githubOwner) ? "kfaubel" : githubOwner;
+        _githubRepo = string.IsNullOrWhiteSpace(githubRepo) ? "DaisyView" : githubRepo;
     }
 
     /// <summary>

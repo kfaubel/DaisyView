@@ -1497,7 +1497,8 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
     }
 
     /// <summary>
-    /// Adds shortcuts for all marked images to the Favorites root folder.
+    /// Adds shortcuts for all marked images to Favorites slot "1".
+    /// This matches the same slot-based shortcut mechanism used by image favoriting.
     /// Returns true when at least one image was added.
     /// </summary>
     public bool AddMarkedImagesToFavorites()
@@ -1521,12 +1522,15 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
             return false;
         }
 
+        const string defaultSlot = "1";
+        var slotFolder = _fileSystemService.EnsureFavoritesSlotFolder(_favoritesFolderPath, defaultSlot);
+
         int addedCount = 0;
         foreach (var filePath in markedFiles)
         {
             try
             {
-                _fileSystemService.AddFileShortcut(filePath, _favoritesFolderPath);
+                _fileSystemService.AddFileShortcut(filePath, slotFolder);
                 addedCount++;
             }
             catch (Exception ex)
@@ -1537,7 +1541,7 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
 
         if (addedCount > 0)
         {
-            StatusMessage = $"Added {addedCount} marked image(s) to Favorites.";
+            StatusMessage = $"Added {addedCount} marked image(s) to Favorites slot {defaultSlot}.";
             return true;
         }
 
