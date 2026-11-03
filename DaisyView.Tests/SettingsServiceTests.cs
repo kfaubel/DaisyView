@@ -1,6 +1,7 @@
 using Xunit;
 using DaisyView.Services;
 using System;
+using System.Collections.Generic;
 using System.IO;
 
 namespace DaisyView.Tests;
@@ -275,6 +276,40 @@ public class SettingsServiceTests : IDisposable
         // Assert - file should exist
         var settingsPath = Path.Combine(_testSettingsFolder, "settings.json");
         Assert.True(File.Exists(settingsPath));
+    }
+
+    [Fact]
+    public void RandomOrderCache_ClearPersistsAcrossReload()
+    {
+        // Arrange
+        var key = "folder::C:\\Images";
+        var service = new SettingsService(_testSettingsFolder);
+        service.SaveRandomOrder(key, new List<string> { "a.jpg", "b.jpg" });
+
+        // Act
+        service.ClearRandomOrder(key);
+        var reloaded = new SettingsService(_testSettingsFolder);
+
+        // Assert
+        Assert.Null(reloaded.GetRandomOrder(key));
+    }
+
+    [Fact]
+    public void RandomOrderCache_SupportsMergedVirtualFolderKey()
+    {
+        // Arrange
+        var key = "merged::C:\\VirtualA|C:\\VirtualB";
+        var expectedOrder = new List<string> { "C:\\VirtualA\\1.jpg", "C:\\VirtualB\\2.jpg" };
+        var service = new SettingsService(_testSettingsFolder);
+
+        // Act
+        service.SaveRandomOrder(key, expectedOrder);
+        var reloaded = new SettingsService(_testSettingsFolder);
+        var restoredOrder = reloaded.GetRandomOrder(key);
+
+        // Assert
+        Assert.NotNull(restoredOrder);
+        Assert.Equal(expectedOrder, restoredOrder);
     }
 
     [Fact]

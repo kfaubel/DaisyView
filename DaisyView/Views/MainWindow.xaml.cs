@@ -836,7 +836,8 @@ public partial class MainWindow : Window
 
         if (e.ClickCount == 2)
         {
-            _viewModel?.OpenSlideshow();
+            DismissOpenTooltip();
+            OpenSlideshowWithMarkedActionPrompt();
             e.Handled = true;
         }
     }
@@ -914,7 +915,7 @@ public partial class MainWindow : Window
         if (key == Key.F11)
         {
             DismissOpenTooltip();
-            _viewModel?.OpenSlideshow();
+            OpenSlideshowWithMarkedActionPrompt();
             e.Handled = true;
         }
         else if (key == Key.A && Keyboard.Modifiers == ModifierKeys.Control)
@@ -956,6 +957,51 @@ public partial class MainWindow : Window
                     e.Handled = true;
                 }
             }
+        }
+    }
+
+    /// <summary>
+    /// Handles toolbar slideshow button click.
+    /// </summary>
+    private void StartSlideshowButton_Click(object sender, RoutedEventArgs e)
+    {
+        OpenSlideshowWithMarkedActionPrompt();
+    }
+
+    /// <summary>
+    /// Opens slideshow and then prompts for what to do with marked images.
+    /// </summary>
+    private void OpenSlideshowWithMarkedActionPrompt()
+    {
+        if (_viewModel == null)
+            return;
+
+        _viewModel.OpenSlideshow();
+
+        var markedCount = _viewModel.Images.Count(i => i.IsMarked);
+        if (markedCount == 0)
+            return;
+
+        var dialog = new MarkedImagesActionDialog(markedCount)
+        {
+            Owner = this
+        };
+
+        dialog.ShowDialog();
+        switch (dialog.SelectedAction)
+        {
+            case MarkedImagesAction.Delete:
+                DeleteMarkedImagesToRecycleBin();
+                break;
+            case MarkedImagesAction.Move:
+                MoveMarkedImagesToFolderDialog();
+                break;
+            case MarkedImagesAction.MakeFavorites:
+                _viewModel.AddMarkedImagesToFavorites();
+                break;
+            case MarkedImagesAction.LeaveMarked:
+            default:
+                break;
         }
     }
 
@@ -1236,6 +1282,11 @@ public partial class MainWindow : Window
     /// </summary>
     private void DeleteButton_Click(object sender, RoutedEventArgs e)
     {
+        DeleteMarkedImagesToRecycleBin();
+    }
+
+    private void DeleteMarkedImagesToRecycleBin()
+    {
         if (_viewModel == null)
             return;
 
@@ -1286,6 +1337,84 @@ public partial class MainWindow : Window
             {
                 _viewModel.StatusMessage = $"Error deleting files: {ex.Message}";
             }
+        }
+    }
+
+    private void MoveMarkedImagesToFolderDialog()
+    {
+        if (_viewModel == null)
+            return;
+
+        var markedFiles = _viewModel.Images
+            .Where(i => i.IsMarked && !i.IsFromShortcut)
+            .Select(i => i.FilePath)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        var shortcutFilesCount = _viewModel.Images.Count(i => i.IsMarked && i.IsFromShortcut);
+        if (markedFiles.Count == 0)
+        {
+            if (shortcutFilesCount > 0)
+            {
+                _viewModel.StatusMessage = $"Cannot move linked files from shortcuts. {shortcutFilesCount} linked file(s) skipped.";
+            }
+            else
+            {
+                _viewModel.StatusMessage = "No images marked for move.";
+            }
+
+            return;
+        }
+
+        using var dialog = new Forms.FolderBrowserDialog
+        {
+            Description = "Move marked images to folder",
+            UseDescriptionForTitle = true,
+            ShowNewFolderButton = true
+        };
+
+        if (dialog.ShowDialog() != Forms.DialogResult.OK || string.IsNullOrWhiteSpace(dialog.SelectedPath))
+            return;
+
+        var destinationFolder = dialog.SelectedPath;
+        int movedCount = 0;
+
+        try
+        {
+            foreach (var filePath in markedFiles)
+            {
+                if (!File.Exists(filePath))
+                    continue;
+
+                var fileName = Path.GetFileName(filePath);
+                var destPath = Path.Combine(destinationFolder, fileName);
+
+                if (File.Exists(destPath) && !string.Equals(filePath, destPath, StringComparison.OrdinalIgnoreCase))
+                {
+                    var nameWithoutExt = Path.GetFileNameWithoutExtension(filePath);
+                    var ext = Path.GetExtension(filePath);
+                    int count = 1;
+                    while (File.Exists(destPath))
+                    {
+                        destPath = Path.Combine(destinationFolder, $"{nameWithoutExt}_{count}{ext}");
+                        count++;
+                    }
+                }
+
+                if (string.Equals(filePath, destPath, StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                File.Move(filePath, destPath, overwrite: true);
+                movedCount++;
+            }
+
+            var skippedMessage = shortcutFilesCount > 0 ? $" ({shortcutFilesCount} linked file(s) skipped)" : "";
+            _viewModel.StatusMessage = $"Moved {movedCount} marked image(s).{skippedMessage}";
+            _viewModel.NavigateToFolder(_viewModel.ActiveFolder?.FullPath);
+        }
+        catch (Exception ex)
+        {
+            _viewModel.StatusMessage = $"Error moving files: {ex.Message}";
         }
     }
 

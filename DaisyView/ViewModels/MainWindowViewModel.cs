@@ -62,6 +62,7 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
     private bool _isMergedFolderView;
     private double _treeViewWidth = 250;
     private string? _favoritesFolderPath;
+    private string? _currentViewStateKey;
     private readonly List<string> _navigationHistory = new();
 
     // Commands
@@ -134,8 +135,8 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
         {
             _activeImage = value;
             OnPropertyChanged(nameof(ActiveImage));
-            if (_currentFolderPath != null && value != null)
-                _settingsService.SetLastActiveImage(_currentFolderPath, value.FileName);
+            if (!string.IsNullOrWhiteSpace(_currentViewStateKey) && value != null)
+                _settingsService.SetLastActiveImage(_currentViewStateKey, value.FileName);
         }
     }
 
@@ -574,9 +575,10 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
             StatusMessage = $"Found {images.Count} media file(s). Rendering tiles...";
             Images = new ObservableCollection<ImageFile>(images);
             _currentFolderPath = folderPath;
+            _currentViewStateKey = GetFolderViewStateKey(folderPath);
 
             // Restore last active image for this folder, or fall back to first image
-            var lastActiveFileName = _settingsService.GetLastActiveImage(folderPath);
+            var lastActiveFileName = _settingsService.GetLastActiveImage(_currentViewStateKey);
             var restoredImage = lastActiveFileName != null
                 ? images.FirstOrDefault(i => string.Equals(i.FileName, lastActiveFileName, StringComparison.OrdinalIgnoreCase))
                 : null;
@@ -605,11 +607,19 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
             // Check if this folder is a favorite
             IsFavorite = _settingsService.IsFavorite(folderPath);
 
-            // Load random order if it was previously enabled
-            var randomOrder = _settingsService.GetRandomOrder(folderPath);
-            if (randomOrder != null)
+            // Load random order if it was previously enabled.
+            var randomOrder = _settingsService.GetRandomOrder(_currentViewStateKey);
+            if (randomOrder != null && randomOrder.Count > 0)
             {
                 RandomEnabled = true;
+
+                var currentFileNames = images.Select(i => i.FileName).ToList();
+                if (!HaveSameItems(randomOrder, currentFileNames, StringComparer.OrdinalIgnoreCase))
+                {
+                    randomOrder = CreateShuffledOrder(currentFileNames);
+                    _settingsService.SaveRandomOrder(_currentViewStateKey, randomOrder);
+                }
+
                 ReorderImagesRandomly(randomOrder);
             }
             else
@@ -719,15 +729,49 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
             Images = new ObservableCollection<ImageFile>(mergedImages);
             _currentFolderPath = null;
             _selectedFolderPaths = validFolders;
+            _currentViewStateKey = GetMergedViewStateKey(validFolders);
             IsMergedFolderView = true;
-            RandomEnabled = false;
             ActiveFolder = null;
             IsFavorite = false;
 
-            if (mergedImages.Count > 0)
+            var mergedRandomOrder = _settingsService.GetRandomOrder(_currentViewStateKey);
+            if (mergedRandomOrder != null && mergedRandomOrder.Count > 0)
             {
-                mergedImages[0].IsActive = true;
-                ActiveImage = mergedImages[0];
+                RandomEnabled = true;
+
+                var currentPaths = mergedImages.Select(i => i.FilePath).ToList();
+                if (!HaveSameItems(mergedRandomOrder, currentPaths, StringComparer.OrdinalIgnoreCase))
+                {
+                    mergedRandomOrder = CreateShuffledOrder(currentPaths);
+                    _settingsService.SaveRandomOrder(_currentViewStateKey, mergedRandomOrder);
+                }
+
+                ReorderImagesByPath(mergedRandomOrder);
+            }
+            else
+            {
+                RandomEnabled = false;
+            }
+
+            var lastMergedActiveFileName = _settingsService.GetLastActiveImage(_currentViewStateKey);
+            var restoredMergedImage = lastMergedActiveFileName != null
+                ? Images.FirstOrDefault(i => string.Equals(i.FileName, lastMergedActiveFileName, StringComparison.OrdinalIgnoreCase))
+                : null;
+
+            if (restoredMergedImage != null)
+            {
+                foreach (var image in Images)
+                {
+                    image.IsActive = false;
+                }
+
+                restoredMergedImage.IsActive = true;
+                ActiveImage = restoredMergedImage;
+            }
+            else if (Images.Count > 0)
+            {
+                Images[0].IsActive = true;
+                ActiveImage = Images[0];
             }
             else
             {
@@ -944,22 +988,13 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
                 var fileNames = Images.Select(i => i.FileName).ToList();
                 _loggingService.LogTrace("Starting random shuffle with {Count} images", fileNames.Count);
                 _loggingService.LogTrace("Before shuffle (first 5): {Order}", string.Join(", ", fileNames.Take(5)));
-                
-                var randomOrder = fileNames.ToList();
-                
-                // Fisher-Yates shuffle using Random.Shared for better randomness
-                for (int i = randomOrder.Count - 1; i > 0; i--)
-                {
-                    int randomIndex = Random.Shared.Next(i + 1);
-                    // Swap
-                    var temp = randomOrder[i];
-                    randomOrder[i] = randomOrder[randomIndex];
-                    randomOrder[randomIndex] = temp;
-                }
+
+                var randomOrder = CreateShuffledOrder(fileNames);
 
                 _loggingService.LogTrace("After shuffle (first 5): {Order}", string.Join(", ", randomOrder.Take(5)));
                 _loggingService.LogTrace("Full random order: {RandomOrder}", string.Join(", ", randomOrder));
-                _settingsService.SaveRandomOrder(ActiveFolder.FullPath, randomOrder);
+                var viewStateKey = _currentViewStateKey ?? GetFolderViewStateKey(ActiveFolder.FullPath);
+                _settingsService.SaveRandomOrder(viewStateKey, randomOrder);
                 _loggingService.LogTrace("Calling ReorderImagesRandomly with {Count} items", randomOrder.Count);
                 ReorderImagesRandomly(randomOrder);
                 _loggingService.LogTrace("After ReorderImagesRandomly, Images: {Images}", string.Join(", ", Images.Select(i => i.FileName)));
@@ -973,7 +1008,8 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
             {
                 // Clear random order
                 _loggingService.LogTrace("Disabling random order");
-                _settingsService.ClearRandomOrder(ActiveFolder.FullPath);
+                var viewStateKey = _currentViewStateKey ?? GetFolderViewStateKey(ActiveFolder.FullPath);
+                _settingsService.ClearRandomOrder(viewStateKey);
 
                 // Reload images in normal order
                 var images = _fileSystemService.GetImageFiles(ActiveFolder.FullPath);
@@ -1007,12 +1043,11 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
             if (RandomEnabled)
             {
                 var pathOrder = Images.Select(i => i.FilePath).ToList();
-                for (int i = pathOrder.Count - 1; i > 0; i--)
+                pathOrder = CreateShuffledOrder(pathOrder);
+
+                if (!string.IsNullOrWhiteSpace(_currentViewStateKey))
                 {
-                    int randomIndex = Random.Shared.Next(i + 1);
-                    var temp = pathOrder[i];
-                    pathOrder[i] = pathOrder[randomIndex];
-                    pathOrder[randomIndex] = temp;
+                    _settingsService.SaveRandomOrder(_currentViewStateKey, pathOrder);
                 }
 
                 ReorderImagesByPath(pathOrder);
@@ -1020,6 +1055,11 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
             }
             else
             {
+                if (!string.IsNullOrWhiteSpace(_currentViewStateKey))
+                {
+                    _settingsService.ClearRandomOrder(_currentViewStateKey);
+                }
+
                 var orderedImages = Images
                     .OrderBy(i => i.DisplayName, StringComparer.OrdinalIgnoreCase)
                     .ThenBy(i => i.FilePath, StringComparer.OrdinalIgnoreCase)
@@ -1049,6 +1089,58 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
         {
             _loggingService.LogError("Failed to toggle merged random sort", ex);
         }
+    }
+
+    private static string GetFolderViewStateKey(string folderPath)
+    {
+        return $"folder::{folderPath}";
+    }
+
+    private static string GetMergedViewStateKey(IEnumerable<string> folderPaths)
+    {
+        var normalized = folderPaths
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(path => path, StringComparer.OrdinalIgnoreCase);
+
+        return "merged::" + string.Join("|", normalized);
+    }
+
+    private static List<string> CreateShuffledOrder(List<string> orderedValues)
+    {
+        var shuffled = orderedValues.ToList();
+        for (int i = shuffled.Count - 1; i > 0; i--)
+        {
+            int randomIndex = Random.Shared.Next(i + 1);
+            var temp = shuffled[i];
+            shuffled[i] = shuffled[randomIndex];
+            shuffled[randomIndex] = temp;
+        }
+
+        return shuffled;
+    }
+
+    private static bool HaveSameItems(List<string> first, List<string> second, StringComparer comparer)
+    {
+        if (first.Count != second.Count)
+            return false;
+
+        var counts = new Dictionary<string, int>(comparer);
+        foreach (var value in first)
+        {
+            counts.TryGetValue(value, out var currentCount);
+            counts[value] = currentCount + 1;
+        }
+
+        foreach (var value in second)
+        {
+            if (!counts.TryGetValue(value, out var currentCount) || currentCount == 0)
+                return false;
+
+            counts[value] = currentCount - 1;
+        }
+
+        return counts.Values.All(count => count == 0);
     }
     /// <summary>
     /// Toggles audio playback during slideshow mode
@@ -1402,6 +1494,55 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
             System.Windows.Application.Current?.Dispatcher.BeginInvoke(() =>
                 StatusMessage = $"Failed to add to Favorites slot {slot}: {ex.Message}");
         }
+    }
+
+    /// <summary>
+    /// Adds shortcuts for all marked images to the Favorites root folder.
+    /// Returns true when at least one image was added.
+    /// </summary>
+    public bool AddMarkedImagesToFavorites()
+    {
+        if (string.IsNullOrWhiteSpace(_favoritesFolderPath) || !Directory.Exists(_favoritesFolderPath))
+        {
+            StatusMessage = "No Favorites folder found. Navigate to a folder named \"Favorites\" first.";
+            return false;
+        }
+
+        var markedFiles = Images
+            .Where(i => i.IsMarked)
+            .Select(i => i.FilePath)
+            .Where(path => !string.IsNullOrWhiteSpace(path) && File.Exists(path))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (markedFiles.Count == 0)
+        {
+            StatusMessage = "No marked images to add to Favorites.";
+            return false;
+        }
+
+        int addedCount = 0;
+        foreach (var filePath in markedFiles)
+        {
+            try
+            {
+                _fileSystemService.AddFileShortcut(filePath, _favoritesFolderPath);
+                addedCount++;
+            }
+            catch (Exception ex)
+            {
+                _loggingService.LogError("Failed to add marked image to Favorites: {Path}", ex, filePath);
+            }
+        }
+
+        if (addedCount > 0)
+        {
+            StatusMessage = $"Added {addedCount} marked image(s) to Favorites.";
+            return true;
+        }
+
+        StatusMessage = "No marked images were added to Favorites.";
+        return false;
     }
 
     /// <summary>

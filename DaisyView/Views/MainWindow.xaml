@@ -529,7 +529,7 @@
                         VerticalAlignment="Center"
                         Style="{StaticResource IconButtonStyle}"
                         ToolTip="Start slideshow"
-                        Command="{Binding OpenSlideshowCommand}">
+                        Click="StartSlideshowButton_Click">
                     <TextBlock Text="⛶" FontSize="24" Foreground="White" />
                 </Button>
                 </StackPanel>

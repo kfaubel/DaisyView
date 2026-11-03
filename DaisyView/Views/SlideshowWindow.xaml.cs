@@ -54,6 +54,7 @@ public partial class SlideshowWindow : Window
             // Ensure cursor is visible initially
             Mouse.OverrideCursor = null;
             _isCursorHidden = false;
+            SetFileNamePanelVisible(true, immediate: true);
 
             // Wire up MediaElement error handling
             VideoDisplay.MediaFailed += VideoDisplay_MediaFailed;
@@ -75,6 +76,7 @@ public partial class SlideshowWindow : Window
                 _cursorHideTimer?.Stop();
                 // Restore cursor visibility when closing slideshow
                 Mouse.OverrideCursor = null;
+                SetFileNamePanelVisible(true, immediate: true);
             };
         }
 
@@ -522,6 +524,7 @@ public partial class SlideshowWindow : Window
         {
             Mouse.OverrideCursor = null;
             _isCursorHidden = false;
+            SetFileNamePanelVisible(true);
         }
 
         // Restart the hide timer
@@ -537,5 +540,32 @@ public partial class SlideshowWindow : Window
         _cursorHideTimer?.Stop();
         Mouse.OverrideCursor = Cursors.None;
         _isCursorHidden = true;
+        SetFileNamePanelVisible(false);
+    }
+
+    /// <summary>
+    /// Fades the filename panel in or out to match cursor visibility.
+    /// </summary>
+    private void SetFileNamePanelVisible(bool visible, bool immediate = false)
+    {
+        if (FileNamePanel == null)
+            return;
+
+        FileNamePanel.BeginAnimation(UIElement.OpacityProperty, null);
+
+        if (immediate)
+        {
+            FileNamePanel.Opacity = visible ? 1.0 : 0.0;
+            return;
+        }
+
+        var fade = new DoubleAnimation
+        {
+            To = visible ? 1.0 : 0.0,
+            Duration = TimeSpan.FromMilliseconds(180),
+            FillBehavior = FillBehavior.HoldEnd
+        };
+
+        FileNamePanel.BeginAnimation(UIElement.OpacityProperty, fade);
     }
 }

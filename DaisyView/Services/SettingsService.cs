@@ -221,7 +221,10 @@ public class SettingsService
     /// </summary>
     public void ClearRandomOrder(string folderPath)
     {
-        _currentSettings.RandomOrderCache.Remove(folderPath);
+        if (_currentSettings.RandomOrderCache.Remove(folderPath))
+        {
+            SaveSettings();
+        }
     }
 
     /// <summary>

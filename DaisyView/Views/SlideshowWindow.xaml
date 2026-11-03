@@ -68,7 +68,8 @@
         </StackPanel>
 
         <!-- File Name Display at Bottom -->
-        <StackPanel Grid.Row="1" 
+        <StackPanel x:Name="FileNamePanel"
+                Grid.Row="1" 
                     Background="Black"
                     Orientation="Horizontal"
                     VerticalAlignment="Center"
