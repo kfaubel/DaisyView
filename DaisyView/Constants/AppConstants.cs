@@ -16,9 +16,9 @@ public static class AppConstants
         public const string Medium = "Medium";
         public const string Large = "Large";
 
-        public const int SmallPixels = 100;
-        public const int MediumPixels = 200;
-        public const int LargePixels = 400;
+        public const int SmallPixels = 150;
+        public const int MediumPixels = 300;
+        public const int LargePixels = 500;
 
         /// <summary>
         /// Default number of visible thumbnails (used for priority loading)
@@ -34,6 +34,24 @@ public static class AppConstants
             "medium" => MediumPixels,
             "large" => LargePixels,
             _ => MediumPixels
+        };
+    }
+
+    /// <summary>
+    /// Thumbnail aspect ratio constants and helpers.
+    /// </summary>
+    public static class ThumbnailAspectRatios
+    {
+        public const string Widescreen16x9 = "16:9";
+        public const string Standard4x3 = "4:3";
+        public const string Square1x1 = "1:1";
+
+        public static (int WidthUnits, int HeightUnits) GetDimensions(string ratio) => ratio switch
+        {
+            Widescreen16x9 => (16, 9),
+            Standard4x3 => (4, 3),
+            Square1x1 => (1, 1),
+            _ => (16, 9)
         };
     }
 

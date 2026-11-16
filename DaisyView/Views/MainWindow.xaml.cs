@@ -21,6 +21,7 @@ namespace DaisyView.Views;
 public partial class MainWindow : Window
 {
     private MainWindowViewModel? _viewModel;
+    private bool _isInitializingAspectRatioSelector;
     private readonly DispatcherTimer _thumbnailPriorityTimer;
     private readonly HashSet<string> _mergedFolderSelection = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<TreeNode> _mergedFolderNodes = new();
@@ -136,6 +137,7 @@ public partial class MainWindow : Window
             UpdateClipboardStatus();
             // Set initial size button color
             UpdateSizeButtonColors(_viewModel.ThumbnailSize);
+            InitializeAspectRatioSelector(_viewModel.ThumbnailAspectRatio);
             
             // Restore tree view width from settings
             if (_viewModel.TreeViewWidth > 0)
@@ -344,7 +346,7 @@ public partial class MainWindow : Window
             }
 
             ClearMergedFolderSelection();
-            viewModel.NavigateToFolder(node.FullPath, node);
+            viewModel.NavigateToFolder(node.FullPath, node, forceRescan: true);
             // Note: ActiveFolder is set via the TwoWay binding when IsActive is set
             
             // Track the last viewed shortcut so we can use it when adding folders to virtual folders
@@ -925,7 +927,12 @@ public partial class MainWindow : Window
         }
         else if (Keyboard.Modifiers == ModifierKeys.None)
         {
-            if (key == Key.F)
+            if (key == Key.Space)
+            {
+                _viewModel?.ToggleImageMark();
+                e.Handled = true;
+            }
+            else if (key == Key.F)
             {
                 _viewModel?.JumpToNextFavoriteFolder();
                 e.Handled = true;
@@ -1070,6 +1077,51 @@ public partial class MainWindow : Window
             LargeSizeButton.Foreground = activeSize == "Large"
                 ? new System.Windows.Media.SolidColorBrush(System.Windows.Media.Colors.Gold)
                 : new System.Windows.Media.SolidColorBrush(System.Windows.Media.Colors.White);
+    }
+
+    /// <summary>
+    /// Selects the matching aspect ratio in the toolbar combo box.
+    /// </summary>
+    private void InitializeAspectRatioSelector(string ratio)
+    {
+        if (AspectRatioComboBox == null)
+            return;
+
+        _isInitializingAspectRatioSelector = true;
+        try
+        {
+            var match = AspectRatioComboBox.Items
+                .OfType<ComboBoxItem>()
+                .FirstOrDefault(item => string.Equals(item.Content?.ToString(), ratio, StringComparison.Ordinal));
+
+            AspectRatioComboBox.SelectedItem = match ?? AspectRatioComboBox.Items[0];
+        }
+        finally
+        {
+            _isInitializingAspectRatioSelector = false;
+        }
+    }
+
+    /// <summary>
+    /// Handles aspect ratio changes for thumbnail layout.
+    /// </summary>
+    private void AspectRatioComboBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_isInitializingAspectRatioSelector)
+            return;
+
+        if (_viewModel == null)
+            return;
+
+        if (AspectRatioComboBox?.SelectedItem is ComboBoxItem selectedItem)
+        {
+            var ratio = selectedItem.Content?.ToString();
+            if (!string.IsNullOrWhiteSpace(ratio))
+            {
+                _viewModel.SetThumbnailAspectRatio(ratio);
+                ScheduleVisibleThumbnailPriorityUpdate();
+            }
+        }
     }
 
     /// <summary>

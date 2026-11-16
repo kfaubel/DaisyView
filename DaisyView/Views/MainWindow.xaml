@@ -356,7 +356,7 @@
                         CornerRadius="4"
                         Padding="2"
                         VerticalAlignment="Center"
-                        Margin="0,0,20,0">
+                    Margin="0,0,10,0">
                     <StackPanel Orientation="Horizontal">
                         <!-- Small Size Button -->
                         <Button Name="SmallSizeButton" 
@@ -395,6 +395,19 @@
                         </Button>
                     </StackPanel>
                 </Border>
+
+                <ComboBox Name="AspectRatioComboBox"
+                          Width="85"
+                          Height="30"
+                          Margin="0,0,20,0"
+                          VerticalAlignment="Center"
+                          SelectionChanged="AspectRatioComboBox_SelectionChanged"
+                          ToolTip="Thumbnail aspect ratio">
+                    <ComboBoxItem Content="16:9" />
+                    <ComboBoxItem Content="4:3" />
+                    <ComboBoxItem Content="1:1" />
+                </ComboBox>
+
                 <Button Name="CopyButton" 
                         Width="40"
                         Height="40"

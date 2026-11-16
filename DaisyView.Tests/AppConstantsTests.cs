@@ -23,21 +23,21 @@ public class AppConstantsTests
     [Fact]
     public void ThumbnailSizes_HasCorrectPixelValues()
     {
-        Assert.Equal(100, AppConstants.ThumbnailSizes.SmallPixels);
-        Assert.Equal(200, AppConstants.ThumbnailSizes.MediumPixels);
-        Assert.Equal(400, AppConstants.ThumbnailSizes.LargePixels);
+        Assert.Equal(150, AppConstants.ThumbnailSizes.SmallPixels);
+        Assert.Equal(300, AppConstants.ThumbnailSizes.MediumPixels);
+        Assert.Equal(500, AppConstants.ThumbnailSizes.LargePixels);
     }
 
     [Theory]
-    [InlineData("small", 100)]
-    [InlineData("Small", 100)]
-    [InlineData("SMALL", 100)]
-    [InlineData("medium", 200)]
-    [InlineData("Medium", 200)]
-    [InlineData("MEDIUM", 200)]
-    [InlineData("large", 400)]
-    [InlineData("Large", 400)]
-    [InlineData("LARGE", 400)]
+    [InlineData("small", 150)]
+    [InlineData("Small", 150)]
+    [InlineData("SMALL", 150)]
+    [InlineData("medium", 300)]
+    [InlineData("Medium", 300)]
+    [InlineData("MEDIUM", 300)]
+    [InlineData("large", 500)]
+    [InlineData("Large", 500)]
+    [InlineData("LARGE", 500)]
     public void GetPixelSize_ReturnsCorrectValue_CaseInsensitive(string sizeName, int expected)
     {
         Assert.Equal(expected, AppConstants.ThumbnailSizes.GetPixelSize(sizeName));
@@ -49,8 +49,8 @@ public class AppConstantsTests
     [InlineData("extra-large")]
     public void GetPixelSize_ReturnsDefaultForInvalidSize(string sizeName)
     {
-        // Default is MediumPixels (200)
-        Assert.Equal(200, AppConstants.ThumbnailSizes.GetPixelSize(sizeName));
+        // Default is MediumPixels (300)
+        Assert.Equal(300, AppConstants.ThumbnailSizes.GetPixelSize(sizeName));
     }
 
     [Fact]

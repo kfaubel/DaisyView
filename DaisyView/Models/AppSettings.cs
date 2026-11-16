@@ -31,9 +31,14 @@ public class AppSettings
     public List<string> FavoriteFolders { get; set; } = new();
 
     /// <summary>
-    /// Thumbnail size in pixels: "Small" (100), "Medium" (200), "Large" (400)
+    /// Thumbnail width preset: "Small" (150), "Medium" (300), "Large" (500)
     /// </summary>
     public string ThumbnailSize { get; set; } = AppConstants.ThumbnailSizes.Medium;
+
+    /// <summary>
+    /// Thumbnail aspect ratio: "16:9", "4:3", or "1:1"
+    /// </summary>
+    public string ThumbnailAspectRatio { get; set; } = AppConstants.ThumbnailAspectRatios.Widescreen16x9;
 
     /// <summary>
     /// Stores random sort order for each folder (key: folder path, value: list of file names in random order)

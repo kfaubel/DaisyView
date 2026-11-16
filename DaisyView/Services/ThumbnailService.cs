@@ -1,7 +1,11 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Media;
@@ -21,16 +25,26 @@ namespace DaisyView.Services;
 public class ThumbnailService : IDisposable
 {
     private const int MaxConcurrentThumbnailWorkers = 8;
+    private const int UiBatchSize = 24;
     private readonly LoggingService _loggingService;
     private readonly FitsImageService _fitsImageService;
+    private readonly string _thumbnailCacheFolder;
     private CancellationTokenSource? _backgroundTaskCancellation;
     private volatile int _currentThumbnailSize = 200; // Default size - volatile for thread safety
+    private int _thumbnailRequestCounter;
     private bool _disposed = false;
+
+    private sealed record ThumbnailWorkResult(ImageFile ImageFile, byte[] ThumbnailData);
     
     public ThumbnailService(LoggingService loggingService)
     {
         _loggingService = loggingService;
         _fitsImageService = new FitsImageService(loggingService);
+        _thumbnailCacheFolder = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            AppConstants.Paths.AppDataFolderName,
+            "ThumbnailCache");
+        Directory.CreateDirectory(_thumbnailCacheFolder);
     }
 
     /// <summary>
@@ -68,6 +82,12 @@ public class ThumbnailService : IDisposable
 
         var safeStart = Math.Clamp(visibleStartIndex, 0, images.Count - 1);
         var safeEnd = Math.Clamp(visibleEndIndex, safeStart, images.Count - 1);
+        var requestId = Interlocked.Increment(ref _thumbnailRequestCounter);
+        var generationStopwatch = Stopwatch.StartNew();
+
+        _loggingService.LogInfo(
+            "Thumbnail generation start #{RequestId}: total={TotalCount}, visibleRange={VisibleStart}-{VisibleEnd}, workers={WorkerCount}",
+            requestId, images.Count, safeStart, safeEnd, MaxConcurrentThumbnailWorkers);
 
         // Process all thumbnails in the background - viewport images first, then the rest
         var visibleImages = images
@@ -84,8 +104,14 @@ public class ThumbnailService : IDisposable
         {
             try
             {
+                var totalApplied = 0;
+                var firstUiBatchLogged = false;
+
                 // Generate visible thumbnails first using the worker pool.
-                await ProcessThumbnailBatchAsync(visibleImages, token);
+                var visibleResults = await ProcessThumbnailBatchAsync(visibleImages, token);
+                var visibleApply = await ApplyThumbnailBatchAsync(visibleResults, token, requestId, generationStopwatch, firstUiBatchLogged);
+                totalApplied += visibleApply.AppliedCount;
+                firstUiBatchLogged = visibleApply.FirstUiBatchLogged;
 
                 if (token.IsCancellationRequested)
                 {
@@ -94,13 +120,23 @@ public class ThumbnailService : IDisposable
                 }
 
                 // Generate remaining thumbnails with the same worker pool.
-                await ProcessThumbnailBatchAsync(backgroundImages, token);
+                var backgroundResults = await ProcessThumbnailBatchAsync(backgroundImages, token);
+                var backgroundApply = await ApplyThumbnailBatchAsync(backgroundResults, token, requestId, generationStopwatch, firstUiBatchLogged);
+                totalApplied += backgroundApply.AppliedCount;
+                firstUiBatchLogged = backgroundApply.FirstUiBatchLogged;
 
-                _loggingService.LogTrace("Thumbnail background generation completed using {WorkerCount} workers", MaxConcurrentThumbnailWorkers);
+                _loggingService.LogInfo(
+                    "Thumbnail generation done #{RequestId}: applied={AppliedCount}, elapsedMs={ElapsedMs}",
+                    requestId,
+                    totalApplied,
+                    generationStopwatch.ElapsedMilliseconds);
             }
             catch (OperationCanceledException)
             {
-                _loggingService.LogTrace("Thumbnail background generation cancelled");
+                _loggingService.LogInfo(
+                    "Thumbnail generation cancelled #{RequestId}: elapsedMs={ElapsedMs}",
+                    requestId,
+                    generationStopwatch.ElapsedMilliseconds);
             }
         }, token);
     }
@@ -108,10 +144,12 @@ public class ThumbnailService : IDisposable
     /// <summary>
     /// Processes a batch of thumbnails using a bounded worker pool.
     /// </summary>
-    private async Task ProcessThumbnailBatchAsync(List<ImageFile> images, CancellationToken token)
+    private async Task<List<ThumbnailWorkResult>> ProcessThumbnailBatchAsync(List<ImageFile> images, CancellationToken token)
     {
         if (images.Count == 0)
-            return;
+            return [];
+
+        var results = new ConcurrentQueue<ThumbnailWorkResult>();
 
         await Parallel.ForEachAsync(
             images,
@@ -122,50 +160,101 @@ public class ThumbnailService : IDisposable
             },
             async (image, cancellationToken) =>
             {
-                await GenerateThumbnailAsync(image, cancellationToken);
+                var generated = await GenerateThumbnailAsync(image, cancellationToken);
+                if (generated != null)
+                {
+                    results.Enqueue(generated);
+                }
             });
+
+        return [.. results];
     }
 
     /// <summary>
     /// Asynchronously generates a thumbnail for a single image
     /// All I/O and image processing happens on background threads
     /// </summary>
-    private async Task GenerateThumbnailAsync(ImageFile imageFile, CancellationToken token)
+    private async Task<ThumbnailWorkResult?> GenerateThumbnailAsync(ImageFile imageFile, CancellationToken token)
     {
         if (token.IsCancellationRequested)
-            return;
+            return null;
 
         try
         {
             if (imageFile.ThumbnailGenerated)
-                return;
+                return null;
 
             if (token.IsCancellationRequested)
-                return;
+                return null;
 
             // Generate thumbnail on background thread
             var thumbnailData = await Task.Run(() => GenerateThumbnailData(imageFile), token);
 
             if (thumbnailData != null)
             {
-                // Set properties on the UI thread at Background priority so thumbnail updates
-                // never block user input (Input priority = 5 > Background priority = 4).
-                await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
-                {
-                    imageFile.ThumbnailData = thumbnailData;
-                    imageFile.ThumbnailGenerated = true;
-                }, DispatcherPriority.Background, token);
+                return new ThumbnailWorkResult(imageFile, thumbnailData);
             }
+
+            return null;
         }
         catch (OperationCanceledException)
         {
             // Expected when cancelled, don't log
+            return null;
         }
         catch (Exception ex)
         {
             _loggingService.LogWarning("Failed to generate thumbnail for {FileName}: {Message}", 
                 imageFile.FileName, ex.Message);
+            return null;
         }
+    }
+
+    /// <summary>
+    /// Applies generated thumbnail updates to the UI in batches.
+    /// </summary>
+    private async Task<(int AppliedCount, bool FirstUiBatchLogged)> ApplyThumbnailBatchAsync(
+        List<ThumbnailWorkResult> results,
+        CancellationToken token,
+        int requestId,
+        Stopwatch generationStopwatch,
+        bool firstUiBatchLogged)
+    {
+        if (results.Count == 0 || token.IsCancellationRequested)
+            return (0, firstUiBatchLogged);
+
+        var appliedCount = 0;
+
+        for (int i = 0; i < results.Count; i += UiBatchSize)
+        {
+            token.ThrowIfCancellationRequested();
+            var batch = results.Skip(i).Take(UiBatchSize).ToList();
+
+            // Set properties on the UI thread at Background priority so thumbnail updates
+            // never block user input (Input priority = 5 > Background priority = 4).
+            await System.Windows.Application.Current.Dispatcher.InvokeAsync(() =>
+            {
+                foreach (var result in batch)
+                {
+                    result.ImageFile.ThumbnailData = result.ThumbnailData;
+                    result.ImageFile.ThumbnailGenerated = true;
+                }
+            }, DispatcherPriority.Background, token);
+
+            appliedCount += batch.Count;
+
+            if (!firstUiBatchLogged)
+            {
+                firstUiBatchLogged = true;
+                _loggingService.LogInfo(
+                    "Thumbnail generation first-batch #{RequestId}: batchCount={BatchCount}, elapsedMs={ElapsedMs}",
+                    requestId,
+                    batch.Count,
+                    generationStopwatch.ElapsedMilliseconds);
+            }
+        }
+
+        return (appliedCount, firstUiBatchLogged);
     }
 
     /// <summary>
@@ -175,7 +264,14 @@ public class ThumbnailService : IDisposable
     {
         try
         {
-            int thumbnailSize = AppConstants.ThumbnailSizes.LargePixels;
+            int thumbnailSize = _currentThumbnailSize;
+
+            if (TryGetFileSignature(imageFile.FilePath, out var lastWriteTicks, out var fileLength)
+                && TryReadThumbnailFromDiskCache(imageFile.FilePath, thumbnailSize, lastWriteTicks, fileLength, out var cachedData))
+            {
+                return cachedData;
+            }
+
             BitmapSource? bitmapSource = null;
 
             if (imageFile.IsVideo)
@@ -213,7 +309,15 @@ public class ThumbnailService : IDisposable
             
             using var ms = new MemoryStream();
             encoder.Save(ms);
-            return ms.ToArray();
+
+            var encoded = ms.ToArray();
+
+            if (TryGetFileSignature(imageFile.FilePath, out lastWriteTicks, out fileLength))
+            {
+                TryWriteThumbnailToDiskCache(imageFile.FilePath, thumbnailSize, lastWriteTicks, fileLength, encoded);
+            }
+
+            return encoded;
         }
         catch (Exception ex)
         {
@@ -221,6 +325,68 @@ public class ThumbnailService : IDisposable
                 imageFile.FileName, ex.Message);
             return null;
         }
+    }
+
+    private bool TryGetFileSignature(string filePath, out long lastWriteTicks, out long fileLength)
+    {
+        lastWriteTicks = 0;
+        fileLength = 0;
+
+        try
+        {
+            var fileInfo = new FileInfo(filePath);
+            if (!fileInfo.Exists)
+                return false;
+
+            lastWriteTicks = fileInfo.LastWriteTimeUtc.Ticks;
+            fileLength = fileInfo.Length;
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private bool TryReadThumbnailFromDiskCache(string filePath, int thumbnailSize, long lastWriteTicks, long fileLength, out byte[] thumbnailData)
+    {
+        thumbnailData = Array.Empty<byte>();
+
+        try
+        {
+            var cachePath = GetThumbnailCacheFilePath(filePath, thumbnailSize, lastWriteTicks, fileLength);
+            if (!File.Exists(cachePath))
+                return false;
+
+            thumbnailData = File.ReadAllBytes(cachePath);
+            return thumbnailData.Length > 0;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private void TryWriteThumbnailToDiskCache(string filePath, int thumbnailSize, long lastWriteTicks, long fileLength, byte[] thumbnailData)
+    {
+        try
+        {
+            var cachePath = GetThumbnailCacheFilePath(filePath, thumbnailSize, lastWriteTicks, fileLength);
+            File.WriteAllBytes(cachePath, thumbnailData);
+        }
+        catch
+        {
+            // Cache write failures should never break thumbnail generation.
+        }
+    }
+
+    private string GetThumbnailCacheFilePath(string filePath, int thumbnailSize, long lastWriteTicks, long fileLength)
+    {
+        var keyMaterial = $"{filePath}|{thumbnailSize}|{lastWriteTicks}|{fileLength}";
+        var keyBytes = Encoding.UTF8.GetBytes(keyMaterial);
+        var hashBytes = SHA256.HashData(keyBytes);
+        var hash = Convert.ToHexString(hashBytes);
+        return Path.Combine(_thumbnailCacheFolder, hash + ".jpg");
     }
 
     /// <summary>

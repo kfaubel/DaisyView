@@ -6,7 +6,9 @@ using System.Threading.Tasks;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Runtime.InteropServices.ComTypes;
+using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using DaisyView.Constants;
 using DaisyView.Helpers;
 using DaisyView.Models;
@@ -19,6 +21,26 @@ namespace DaisyView.Services;
 /// </summary>
 public class FileSystemService : IDisposable
 {
+    private const int FolderIndexCacheVersion = 1;
+
+    private sealed class FolderIndexCacheEntry
+    {
+        public int Version { get; set; }
+        public required string FolderPath { get; set; }
+        public long FolderLastWriteUtcTicks { get; set; }
+        public List<CachedImageEntry> Items { get; set; } = new();
+    }
+
+    private sealed class CachedImageEntry
+    {
+        public required string FileName { get; set; }
+        public required string FilePath { get; set; }
+        public bool IsVideo { get; set; }
+        public bool IsFromShortcut { get; set; }
+        public string? ShortcutName { get; set; }
+        public string? FavoriteShortcutFilePath { get; set; }
+    }
+
     #region COM Interop for Shell Links
 
     [ComImport]
@@ -55,12 +77,19 @@ public class FileSystemService : IDisposable
     private bool _disposed = false;
     private readonly LoggingService _loggingService;
     private readonly Dictionary<string, FileSystemWatcher> _watchers = new();
+    private readonly string _folderIndexCacheFolder;
+    private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = false };
 
     public event EventHandler<FileSystemEventArgs>? FileSystemChanged;
 
     public FileSystemService(LoggingService loggingService)
     {
         _loggingService = loggingService;
+        _folderIndexCacheFolder = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            AppConstants.Paths.AppDataFolderName,
+            "FolderIndexCache");
+        Directory.CreateDirectory(_folderIndexCacheFolder);
     }
 
     /// <summary>
@@ -320,114 +349,232 @@ public class FileSystemService : IDisposable
     /// Gets image files in a folder (jpg, jpeg, png, gif, bmp, tif, tiff, webp, webm, mp4, avi, mpeg, mpg)
     /// Also includes images from folders referenced by shortcuts (.lnk files) in the current folder
     /// </summary>
-    public List<ImageFile> GetImageFiles(string folderPath)
+    public List<ImageFile> GetImageFiles(string folderPath, bool forceRescan = false)
     {
-        var images = new List<ImageFile>();
-
         try
         {
-            var directory = new DirectoryInfo(folderPath);
-            
-            // Get direct image files
-            var files = directory.GetFiles()
-                .Where(f => MediaTypeHelper.IsSupportedMedia(f.FullName))
-                .OrderBy(f => f.Name)
-                .ToList();
-
-            foreach (var file in files)
+            if (!forceRescan && TryLoadFolderIndexCache(folderPath, out var cachedImages))
             {
-                var isVideo = MediaTypeHelper.IsVideoFile(file.FullName);
-                images.Add(new ImageFile
-                {
-                    FileName = file.Name,
-                    FilePath = file.FullName,
-                    IsMarked = false,
-                    IsActive = false,
-                    IsVideo = isVideo,
-                    ThumbnailGenerated = false,
-                    IsFromShortcut = false,
-                    ShortcutName = null
-                });
+                _loggingService.LogTrace("Loaded {ImageCount} media files from folder cache for {FolderPath}", cachedImages.Count, folderPath);
+                return cachedImages;
             }
 
-            // Get images from shortcut files (folder shortcuts and file shortcuts)
-            var shortcuts = directory.GetFiles("*.lnk");
-            foreach (var shortcut in shortcuts)
+            if (forceRescan)
             {
-                // First try: folder shortcut → gather all media files from target folder
-                var targetFolder = ResolveShortcutToFolder(shortcut.FullName);
-                if (targetFolder != null)
+                InvalidateFolderIndexCache(folderPath);
+                _loggingService.LogTrace("Force rescan requested for folder: {FolderPath}", folderPath);
+            }
+
+            var images = BuildImageFileListFromFileSystem(folderPath);
+            TrySaveFolderIndexCache(folderPath, images);
+
+            _loggingService.LogTrace("Found {ImageCount} image files in {FolderPath} (including shortcuts)", images.Count, folderPath);
+            return images;
+        }
+        catch (Exception ex)
+        {
+            _loggingService.LogError("Failed to get image files for {FolderPath}", ex, folderPath);
+            return new List<ImageFile>();
+        }
+    }
+
+    private List<ImageFile> BuildImageFileListFromFileSystem(string folderPath)
+    {
+        var images = new List<ImageFile>();
+        var directory = new DirectoryInfo(folderPath);
+
+        // Get direct image files
+        var files = directory.GetFiles()
+            .Where(f => MediaTypeHelper.IsSupportedMedia(f.FullName))
+            .OrderBy(f => f.Name)
+            .ToList();
+
+        foreach (var file in files)
+        {
+            var isVideo = MediaTypeHelper.IsVideoFile(file.FullName);
+            images.Add(new ImageFile
+            {
+                FileName = file.Name,
+                FilePath = file.FullName,
+                IsMarked = false,
+                IsActive = false,
+                IsVideo = isVideo,
+                ThumbnailGenerated = false,
+                IsFromShortcut = false,
+                ShortcutName = null
+            });
+        }
+
+        // Get images from shortcut files (folder shortcuts and file shortcuts)
+        var shortcuts = directory.GetFiles("*.lnk");
+        foreach (var shortcut in shortcuts)
+        {
+            // First try: folder shortcut -> gather all media files from target folder
+            var targetFolder = ResolveShortcutToFolder(shortcut.FullName);
+            if (targetFolder != null)
+            {
+                var shortcutName = Path.GetFileNameWithoutExtension(shortcut.Name);
+                var targetDir = new DirectoryInfo(targetFolder);
+
+                var shortcutFiles = targetDir.GetFiles()
+                    .Where(f => MediaTypeHelper.IsSupportedMedia(f.FullName))
+                    .OrderBy(f => f.Name)
+                    .ToList();
+
+                foreach (var file in shortcutFiles)
                 {
-                    var shortcutName = Path.GetFileNameWithoutExtension(shortcut.Name);
-                    var targetDir = new DirectoryInfo(targetFolder);
-
-                    var shortcutFiles = targetDir.GetFiles()
-                        .Where(f => MediaTypeHelper.IsSupportedMedia(f.FullName))
-                        .OrderBy(f => f.Name)
-                        .ToList();
-
-                    foreach (var file in shortcutFiles)
-                    {
-                        var isVideo = MediaTypeHelper.IsVideoFile(file.FullName);
-                        images.Add(new ImageFile
-                        {
-                            FileName = file.Name,
-                            FilePath = file.FullName,
-                            IsMarked = false,
-                            IsActive = false,
-                            IsVideo = isVideo,
-                            ThumbnailGenerated = false,
-                            IsFromShortcut = true,
-                            ShortcutName = shortcutName
-                        });
-                    }
-
-                    _loggingService.LogTrace("Found {Count} images in shortcut '{ShortcutName}' -> {TargetFolder}",
-                        shortcutFiles.Count, shortcutName, targetFolder);
-                    continue;
-                }
-
-                // Second try: file shortcut → the shortcut points directly to a media file
-                var targetFile = ResolveShortcutToFile(shortcut.FullName);
-                if (targetFile != null && MediaTypeHelper.IsSupportedMedia(targetFile))
-                {
-                    var isVideo = MediaTypeHelper.IsVideoFile(targetFile);
-                    // Use the parent folder name (slot number) as a label
-                    var slotName = Path.GetFileName(Path.GetDirectoryName(shortcut.FullName) ?? string.Empty);
+                    var isVideo = MediaTypeHelper.IsVideoFile(file.FullName);
                     images.Add(new ImageFile
                     {
-                        FileName = Path.GetFileName(targetFile),
-                        FilePath = targetFile,
+                        FileName = file.Name,
+                        FilePath = file.FullName,
                         IsMarked = false,
                         IsActive = false,
                         IsVideo = isVideo,
                         ThumbnailGenerated = false,
                         IsFromShortcut = true,
-                        ShortcutName = slotName,
-                        FavoriteShortcutFilePath = shortcut.FullName
+                        ShortcutName = shortcutName
                     });
-
-                    _loggingService.LogTrace("Found favorite file shortcut '{ShortcutFile}' -> {TargetFile}",
-                        shortcut.Name, targetFile);
                 }
+
+                _loggingService.LogTrace("Found {Count} images in shortcut '{ShortcutName}' -> {TargetFolder}",
+                    shortcutFiles.Count, shortcutName, targetFolder);
+                continue;
             }
 
-            _loggingService.LogTrace("Found {ImageCount} image files in {FolderPath} (including shortcuts)", images.Count, folderPath);
-        }
-        catch (Exception ex)
-        {
-            _loggingService.LogError("Failed to get image files for {FolderPath}", ex, folderPath);
+            // Second try: file shortcut -> the shortcut points directly to a media file
+            var targetFile = ResolveShortcutToFile(shortcut.FullName);
+            if (targetFile != null && MediaTypeHelper.IsSupportedMedia(targetFile))
+            {
+                var isVideo = MediaTypeHelper.IsVideoFile(targetFile);
+                // Use the parent folder name (slot number) as a label
+                var slotName = Path.GetFileName(Path.GetDirectoryName(shortcut.FullName) ?? string.Empty);
+                images.Add(new ImageFile
+                {
+                    FileName = Path.GetFileName(targetFile),
+                    FilePath = targetFile,
+                    IsMarked = false,
+                    IsActive = false,
+                    IsVideo = isVideo,
+                    ThumbnailGenerated = false,
+                    IsFromShortcut = true,
+                    ShortcutName = slotName,
+                    FavoriteShortcutFilePath = shortcut.FullName
+                });
+
+                _loggingService.LogTrace("Found favorite file shortcut '{ShortcutFile}' -> {TargetFile}",
+                    shortcut.Name, targetFile);
+            }
         }
 
         return images;
     }
 
+    private bool TryLoadFolderIndexCache(string folderPath, out List<ImageFile> images)
+    {
+        images = new List<ImageFile>();
+
+        try
+        {
+            var cachePath = GetFolderIndexCachePath(folderPath);
+            if (!File.Exists(cachePath))
+                return false;
+
+            var json = File.ReadAllText(cachePath);
+            var cache = JsonSerializer.Deserialize<FolderIndexCacheEntry>(json, JsonOptions);
+            if (cache == null || cache.Version != FolderIndexCacheVersion)
+                return false;
+
+            if (!string.Equals(cache.FolderPath, folderPath, StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            if (!Directory.Exists(folderPath))
+                return false;
+
+            var currentLastWriteTicks = Directory.GetLastWriteTimeUtc(folderPath).Ticks;
+            if (currentLastWriteTicks != cache.FolderLastWriteUtcTicks)
+                return false;
+
+            images = cache.Items.Select(item => new ImageFile
+            {
+                FileName = item.FileName,
+                FilePath = item.FilePath,
+                IsMarked = false,
+                IsActive = false,
+                IsVideo = item.IsVideo,
+                ThumbnailGenerated = false,
+                IsFromShortcut = item.IsFromShortcut,
+                ShortcutName = item.ShortcutName,
+                FavoriteShortcutFilePath = item.FavoriteShortcutFilePath
+            }).ToList();
+
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private void TrySaveFolderIndexCache(string folderPath, List<ImageFile> images)
+    {
+        try
+        {
+            var cache = new FolderIndexCacheEntry
+            {
+                Version = FolderIndexCacheVersion,
+                FolderPath = folderPath,
+                FolderLastWriteUtcTicks = Directory.GetLastWriteTimeUtc(folderPath).Ticks,
+                Items = images.Select(image => new CachedImageEntry
+                {
+                    FileName = image.FileName,
+                    FilePath = image.FilePath,
+                    IsVideo = image.IsVideo,
+                    IsFromShortcut = image.IsFromShortcut,
+                    ShortcutName = image.ShortcutName,
+                    FavoriteShortcutFilePath = image.FavoriteShortcutFilePath
+                }).ToList()
+            };
+
+            var json = JsonSerializer.Serialize(cache, JsonOptions);
+            File.WriteAllText(GetFolderIndexCachePath(folderPath), json);
+        }
+        catch
+        {
+            // Cache write failures should not block folder navigation.
+        }
+    }
+
+    private void InvalidateFolderIndexCache(string folderPath)
+    {
+        try
+        {
+            var cachePath = GetFolderIndexCachePath(folderPath);
+            if (File.Exists(cachePath))
+            {
+                File.Delete(cachePath);
+            }
+        }
+        catch
+        {
+            // Cache cleanup failures should not block file-system events.
+        }
+    }
+
+    private string GetFolderIndexCachePath(string folderPath)
+    {
+        var keyBytes = Encoding.UTF8.GetBytes(folderPath);
+        var hashBytes = SHA256.HashData(keyBytes);
+        var hash = Convert.ToHexString(hashBytes);
+        return Path.Combine(_folderIndexCacheFolder, hash + ".json");
+    }
+
     /// <summary>
     /// Asynchronously gets image files in a folder
     /// </summary>
-    public async Task<List<ImageFile>> GetImageFilesAsync(string folderPath)
+    public async Task<List<ImageFile>> GetImageFilesAsync(string folderPath, bool forceRescan = false)
     {
-        return await Task.Run(() => GetImageFiles(folderPath));
+        return await Task.Run(() => GetImageFiles(folderPath, forceRescan));
     }
 
     /// <summary>
@@ -482,6 +629,12 @@ public class FileSystemService : IDisposable
     /// </summary>
     private void OnFileSystemChanged(object sender, FileSystemEventArgs e)
     {
+        var directory = Path.GetDirectoryName(e.FullPath);
+        if (!string.IsNullOrWhiteSpace(directory))
+        {
+            InvalidateFolderIndexCache(directory);
+        }
+
         _loggingService.LogTrace("File system change detected: {ChangeType} - {Path}", e.ChangeType, e.FullPath);
         FileSystemChanged?.Invoke(this, e);
     }

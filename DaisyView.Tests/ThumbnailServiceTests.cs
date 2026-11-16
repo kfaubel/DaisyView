@@ -9,13 +9,13 @@ namespace DaisyView.Tests;
 public class ThumbnailServiceTests
 {
     [Theory]
-    [InlineData("small", 100)]
-    [InlineData("Small", 100)]
-    [InlineData("SMALL", 100)]
-    [InlineData("medium", 200)]
-    [InlineData("Medium", 200)]
-    [InlineData("large", 400)]
-    [InlineData("Large", 400)]
+    [InlineData("small", 150)]
+    [InlineData("Small", 150)]
+    [InlineData("SMALL", 150)]
+    [InlineData("medium", 300)]
+    [InlineData("Medium", 300)]
+    [InlineData("large", 500)]
+    [InlineData("Large", 500)]
     public void GetThumbnailSizePixels_ReturnsCorrectSize(string sizeString, int expectedSize)
     {
         // Act
@@ -32,6 +32,6 @@ public class ThumbnailServiceTests
         var result = ThumbnailService.GetThumbnailSizePixels("unknown");
 
         // Assert
-        Assert.Equal(200, result); // Default is medium
+        Assert.Equal(300, result); // Default is medium
     }
 }

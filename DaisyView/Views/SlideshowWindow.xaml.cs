@@ -451,7 +451,22 @@ public partial class SlideshowWindow : Window
         {
             _images[_currentImageIndex].IsMarked = !_images[_currentImageIndex].IsMarked;
             DisplayCurrentImage(); // Refresh to update color
+
+            if (_images[_currentImageIndex].IsMarked)
+            {
+                ShowFileNameTemporarily();
+            }
         }
+    }
+
+    /// <summary>
+    /// Shows the filename panel and reuses the existing inactivity timer to hide it again.
+    /// </summary>
+    private void ShowFileNameTemporarily()
+    {
+        SetFileNamePanelVisible(true);
+        _cursorHideTimer?.Stop();
+        _cursorHideTimer?.Start();
     }
 
     /// <summary>

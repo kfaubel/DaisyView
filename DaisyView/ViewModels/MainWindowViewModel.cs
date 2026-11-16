@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
@@ -53,6 +54,7 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
     private bool _randomEnabled;
     private bool _isFavorite;
     private string _thumbnailSize = "Medium";
+    private string _thumbnailAspectRatio = AppConstants.ThumbnailAspectRatios.Widescreen16x9;
     private List<string> _favorites = new();
     private bool _audioEnabled = true;
     private int _lastPriorityStartIndex = -1;
@@ -159,6 +161,20 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
         set { _thumbnailSize = value; OnPropertyChanged(nameof(ThumbnailSize)); OnPropertyChanged(nameof(ThumbnailSizePixels)); OnPropertyChanged(nameof(ThumbnailHeightPixels)); }
     }
 
+    public string ThumbnailAspectRatio
+    {
+        get => _thumbnailAspectRatio;
+        set
+        {
+            if (_thumbnailAspectRatio != value)
+            {
+                _thumbnailAspectRatio = value;
+                OnPropertyChanged(nameof(ThumbnailAspectRatio));
+                OnPropertyChanged(nameof(ThumbnailHeightPixels));
+            }
+        }
+    }
+
     /// <summary>
     /// Gets the thumbnail size in pixels for binding to UI
     /// </summary>
@@ -168,11 +184,15 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
     }
 
     /// <summary>
-    /// Gets the thumbnail height in pixels based on 16:9 aspect ratio
+    /// Gets the thumbnail height in pixels based on the selected aspect ratio
     /// </summary>
     public int ThumbnailHeightPixels
     {
-        get => (int)(ThumbnailSizePixels * 9 / 16.0);
+        get
+        {
+            var (widthUnits, heightUnits) = AppConstants.ThumbnailAspectRatios.GetDimensions(_thumbnailAspectRatio);
+            return Math.Max(1, (int)Math.Round((double)ThumbnailSizePixels * heightUnits / widthUnits));
+        }
     }
 
     public List<string> Favorites
@@ -484,6 +504,7 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
         {
             var settings = _settingsService.GetSettings();
             ThumbnailSize = settings.ThumbnailSize;
+            ThumbnailAspectRatio = settings.ThumbnailAspectRatio;
             _thumbnailService.SetThumbnailSize(settings.ThumbnailSize);
         }
         catch (Exception ex)
@@ -512,7 +533,7 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
     /// <summary>
     /// Navigates to a specific folder
     /// </summary>
-    public void NavigateToFolder(string? folderPath, TreeNode? sourceNode = null, bool addToHistory = true)
+    public void NavigateToFolder(string? folderPath, TreeNode? sourceNode = null, bool addToHistory = true, bool forceRescan = false)
     {
         _loggingService.LogTrace("NavigateToFolder called with: {Path}", folderPath ?? "null");
         if (string.IsNullOrEmpty(folderPath))
@@ -520,7 +541,7 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
             return;
         }
 
-        _ = NavigateToFolderAsync(folderPath, sourceNode, addToHistory);
+        _ = NavigateToFolderAsync(folderPath, sourceNode, addToHistory, forceRescan);
     }
 
     /// <summary>
@@ -537,12 +558,14 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
     /// <summary>
     /// Asynchronously navigates to a folder and loads images without blocking the UI
     /// </summary>
-    private async Task NavigateToFolderAsync(string? folderPath, TreeNode? sourceNode = null, bool addToHistory = true)
+    private async Task NavigateToFolderAsync(string? folderPath, TreeNode? sourceNode = null, bool addToHistory = true, bool forceRescan = false)
     {
         _loggingService.LogTrace("NavigateToFolderAsync START for: {Path}", folderPath);
         
         if (string.IsNullOrEmpty(folderPath))
             return;
+
+        var navigationStopwatch = Stopwatch.StartNew();
 
         _isNavigating = true;
 
@@ -580,6 +603,13 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
             IsMergedFolderView = false;
             _selectedFolderPaths.Clear();
 
+            // When navigation comes from a tree node click, rescan that branch in-place first
+            // so new/missing subdirectories are reflected immediately.
+            if (sourceNode != null)
+            {
+                RefreshFolderNodeChildren(sourceNode);
+            }
+
             // Cancel thumbnail generation for the previous folder
             _thumbnailService.CancelBackgroundGeneration();
 
@@ -588,11 +618,23 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
             StatusMessage = "Loading folder contents...";
 
             // Load images from the new folder asynchronously
-            var images = await _fileSystemService.GetImageFilesAsync(folderPath);
+            var shouldForceRescan = forceRescan || sourceNode != null;
+            var images = await _fileSystemService.GetImageFilesAsync(folderPath, shouldForceRescan);
+            _loggingService.LogInfo(
+                "Folder load milestone: list-ready for {FolderPath} in {ElapsedMs}ms ({MediaCount} media files)",
+                folderPath,
+                navigationStopwatch.ElapsedMilliseconds,
+                images.Count);
+
             StatusMessage = $"Found {images.Count} media file(s). Rendering tiles...";
             Images = new ObservableCollection<ImageFile>(images);
             _currentFolderPath = folderPath;
             _currentViewStateKey = GetFolderViewStateKey(folderPath);
+
+            _loggingService.LogInfo(
+                "Folder load milestone: images-bound for {FolderPath} in {ElapsedMs}ms",
+                folderPath,
+                navigationStopwatch.ElapsedMilliseconds);
 
             // Restore last active image for this folder, or fall back to first image
             var lastActiveFileName = _settingsService.GetLastActiveImage(_currentViewStateKey);
@@ -638,6 +680,11 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
                 }
 
                 ReorderImagesRandomly(randomOrder);
+
+                _loggingService.LogInfo(
+                    "Folder load milestone: random-order-applied for {FolderPath} in {ElapsedMs}ms",
+                    folderPath,
+                    navigationStopwatch.ElapsedMilliseconds);
             }
             else
             {
@@ -671,6 +718,11 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
             // called ScheduleVisibleThumbnailPriorityUpdate when Images was assigned above,
             // which will start thumbnail generation with the real visible range after 40 ms.
             FolderNavigated?.Invoke(this, new FolderNavigationEventArgs { FolderPath = folderPath });
+
+            _loggingService.LogInfo(
+                "Folder load milestone: folder-navigated event fired for {FolderPath} in {ElapsedMs}ms",
+                folderPath,
+                navigationStopwatch.ElapsedMilliseconds);
             
             // Expand the tree to show this folder and mark it as active
             // But skip this if we clicked on a shortcut - keep the shortcut selected
@@ -690,6 +742,11 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
             
             // Refresh the subfolders for the active folder to show any new/deleted folders
             RefreshCurrentFolderSubfolders();
+
+            _loggingService.LogInfo(
+                "Folder load completed for {FolderPath} in {ElapsedMs}ms",
+                folderPath,
+                navigationStopwatch.ElapsedMilliseconds);
         }
         catch (Exception ex)
         {
@@ -733,7 +790,7 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
             Images = new ObservableCollection<ImageFile>();
             StatusMessage = "Loading merged folder contents...";
 
-            var imageTasks = validFolders.Select(_fileSystemService.GetImageFilesAsync).ToList();
+            var imageTasks = validFolders.Select(path => _fileSystemService.GetImageFilesAsync(path)).ToList();
             var folderResults = await Task.WhenAll(imageTasks);
 
             var mergedImages = folderResults
@@ -1414,6 +1471,31 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
             _lastPriorityStartIndex = -1;
             _lastPriorityEndIndex = -1;
         }
+    }
+
+    /// <summary>
+    /// Changes the thumbnail aspect ratio and saves the setting.
+    /// </summary>
+    public void SetThumbnailAspectRatio(string ratio)
+    {
+        if (string.IsNullOrWhiteSpace(ratio))
+            return;
+
+        if (ratio != AppConstants.ThumbnailAspectRatios.Widescreen16x9
+            && ratio != AppConstants.ThumbnailAspectRatios.Standard4x3
+            && ratio != AppConstants.ThumbnailAspectRatios.Square1x1)
+        {
+            return;
+        }
+
+        if (ThumbnailAspectRatio == ratio)
+            return;
+
+        ThumbnailAspectRatio = ratio;
+        _settingsService.UpdateSetting(s => { s.ThumbnailAspectRatio = ratio; });
+        _loggingService.LogUserAction("Changed thumbnail aspect ratio", ratio);
+        _lastPriorityStartIndex = -1;
+        _lastPriorityEndIndex = -1;
     }
 
     /// <summary>

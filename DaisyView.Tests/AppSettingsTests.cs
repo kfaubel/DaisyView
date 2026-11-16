@@ -42,6 +42,16 @@ public class AppSettingsTests
     }
 
     [Fact]
+    public void AppSettings_HasCorrectDefaultThumbnailAspectRatio()
+    {
+        // Arrange & Act
+        var settings = new AppSettings();
+
+        // Assert
+        Assert.Equal(AppConstants.ThumbnailAspectRatios.Widescreen16x9, settings.ThumbnailAspectRatio);
+    }
+
+    [Fact]
     public void AppSettings_HasCorrectDefaultWindowDimensions()
     {
         // Arrange & Act
@@ -130,6 +140,19 @@ public class AppSettingsTests
 
         // Assert
         Assert.Equal("Large", settings.ThumbnailSize);
+    }
+
+    [Fact]
+    public void AppSettings_ThumbnailAspectRatio_CanBeModified()
+    {
+        // Arrange
+        var settings = new AppSettings();
+
+        // Act
+        settings.ThumbnailAspectRatio = AppConstants.ThumbnailAspectRatios.Standard4x3;
+
+        // Assert
+        Assert.Equal("4:3", settings.ThumbnailAspectRatio);
     }
 
     [Fact]
