@@ -16,6 +16,7 @@
         <converters:AudioIconConverter x:Key="AudioIconConverter" />
         <converters:AudioColorConverter x:Key="AudioColorConverter" />
         <converters:IntToVisibilityConverter x:Key="IntToVisibilityConverter" />
+        <converters:FilenameTooltipConverter x:Key="FilenameTooltipConverter" />
         
         <!-- Size Button Style with box border -->
         <Style x:Key="SizeButtonStyle" TargetType="Button">
@@ -570,8 +571,13 @@
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
                                 <Grid MouseLeftButtonDown="Thumbnail_MouseLeftButtonDown"
-                                      MouseRightButtonDown="Thumbnail_MouseRightButtonDown"
-                                      ToolTip="{Binding DisplayName}">
+                                      MouseRightButtonDown="Thumbnail_MouseRightButtonDown">
+                                    <Grid.ToolTip>
+                                        <MultiBinding Converter="{StaticResource FilenameTooltipConverter}">
+                                            <Binding Path="DisplayName" />
+                                            <Binding Path="IsActive" />
+                                        </MultiBinding>
+                                    </Grid.ToolTip>
                                     <Border BorderThickness="2" 
                                             BorderBrush="{Binding IsActive, Converter={StaticResource BoolToRedBrushConverter}}"
                                             Margin="5">

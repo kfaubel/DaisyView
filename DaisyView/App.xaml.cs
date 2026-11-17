@@ -171,18 +171,45 @@ public partial class App : Application
                 {
                     MainWindow?.Dispatcher.Invoke(() =>
                     {
+                        var releaseLabel = latestRelease.TagName ?? latestRelease.Name ?? "latest";
+                        var body = latestRelease.Body ?? string.Empty;
+                        var preview = body.Length > 700 ? body[..700] + "\n\n..." : body;
+
                         var result = MessageBox.Show(
-                            $"A new version of DaisyView is available: {latestRelease.TagName}\n\n{latestRelease.Body}\n\nWould you like to update?",
+                            $"A new version of DaisyView is available: {releaseLabel}\n\n" +
+                            "Yes = Download and update now\n" +
+                            "No = View release notes\n" +
+                            "Cancel = Remind me later\n\n" +
+                            preview,
                             "Update Available",
-                            MessageBoxButton.YesNo,
+                            MessageBoxButton.YesNoCancel,
                             MessageBoxImage.Information);
 
                         if (result == MessageBoxResult.Yes)
                         {
-                            var downloadUrl = _updateCheckService.GetDownloadUrl(latestRelease.TagName ?? "");
+                            var downloadUrl = _updateCheckService.GetPreferredDownloadUrl(latestRelease);
                             System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(downloadUrl) 
                             { 
                                 UseShellExecute = true 
+                            });
+
+                            var closeForUpdate = MessageBox.Show(
+                                "The update download has started.\n\nClose DaisyView now so the installer can replace files?",
+                                "Close For Update",
+                                MessageBoxButton.YesNo,
+                                MessageBoxImage.Question);
+
+                            if (closeForUpdate == MessageBoxResult.Yes)
+                            {
+                                Shutdown();
+                            }
+                        }
+                        else if (result == MessageBoxResult.No)
+                        {
+                            var releasePageUrl = _updateCheckService.GetReleasePageUrl(latestRelease.TagName ?? "");
+                            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(releasePageUrl)
+                            {
+                                UseShellExecute = true
                             });
                         }
                     });

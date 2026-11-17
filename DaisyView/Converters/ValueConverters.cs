@@ -154,3 +154,27 @@ public class IntToVisibilityConverter : IValueConverter
         throw new NotImplementedException();
     }
 }
+
+/// <summary>
+/// Returns the filename as a tooltip only when the thumbnail is selected (IsActive is true)
+/// Returns null (no tooltip) when thumbnail is not selected
+/// </summary>
+public class FilenameTooltipConverter : IMultiValueConverter
+{
+    public object? Convert(object[] values, Type targetType, object parameter, CultureInfo culture)
+    {
+        if (values.Length < 2)
+            return null;
+
+        var filename = values[0] as string;
+        var isActive = values[1] is bool && (bool)values[1];
+
+        // Only show tooltip if the thumbnail is selected
+        return isActive ? filename : null;
+    }
+
+    public object[] ConvertBack(object value, Type[] targetTypes, object parameter, CultureInfo culture)
+    {
+        throw new NotImplementedException();
+    }
+}

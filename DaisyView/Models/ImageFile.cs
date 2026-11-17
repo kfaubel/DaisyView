@@ -107,9 +107,7 @@ public class ImageFile : INotifyPropertyChanged
             if (_thumbnailData != value) 
             { 
                 _thumbnailData = value; 
-                // Only notify if already generated - avoids double notification
-                if (_thumbnailGenerated)
-                    OnPropertyChanged(); 
+                OnPropertyChanged();
             } 
         }
     }

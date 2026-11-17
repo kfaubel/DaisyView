@@ -1,6 +1,8 @@
 using System;
+using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Json;
+using System.Text.Json;
 using System.Threading.Tasks;
 using DaisyView.Models;
 
@@ -17,6 +19,10 @@ public class UpdateCheckService
     private readonly string _githubOwner;
     private readonly string _githubRepo;
     private const string GitHubApiUrl = "https://api.github.com";
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        PropertyNameCaseInsensitive = true
+    };
 
     public UpdateCheckService(LoggingService loggingService, string githubOwner = "kfaubel", string githubRepo = "DaisyView")
     {
@@ -48,7 +54,7 @@ public class UpdateCheckService
             }
 
             var contentStream = await response.Content.ReadAsStreamAsync();
-            var release = System.Text.Json.JsonSerializer.DeserializeAsync<GitHubRelease>(contentStream).Result;
+            var release = await JsonSerializer.DeserializeAsync<GitHubRelease>(contentStream, JsonOptions);
             
             if (release != null)
             {
@@ -98,10 +104,51 @@ public class UpdateCheckService
     }
 
     /// <summary>
-    /// Gets the download URL for a specific release
+    /// Gets the release page URL for a specific release
     /// </summary>
-    public string GetDownloadUrl(string tagName)
+    public string GetReleasePageUrl(string tagName)
     {
         return $"https://github.com/{_githubOwner}/{_githubRepo}/releases/tag/{tagName}";
+    }
+
+    /// <summary>
+    /// Gets the preferred direct download URL for a release when possible.
+    /// Falls back to the release page URL.
+    /// </summary>
+    public string GetPreferredDownloadUrl(GitHubRelease release)
+    {
+        if (release == null)
+            throw new ArgumentNullException(nameof(release));
+
+        if (release.Assets.Count > 0)
+        {
+            // Prefer installer-like assets for one-click update.
+            var preferred = release.Assets.FirstOrDefault(asset =>
+                !string.IsNullOrWhiteSpace(asset.BrowserDownloadUrl)
+                && HasPreferredInstallerExtension(asset.Name));
+
+            if (preferred?.BrowserDownloadUrl != null)
+                return preferred.BrowserDownloadUrl;
+
+            var firstUsable = release.Assets.FirstOrDefault(asset => !string.IsNullOrWhiteSpace(asset.BrowserDownloadUrl));
+            if (firstUsable?.BrowserDownloadUrl != null)
+                return firstUsable.BrowserDownloadUrl;
+        }
+
+        if (!string.IsNullOrWhiteSpace(release.HtmlUrl))
+            return release.HtmlUrl;
+
+        return GetReleasePageUrl(release.TagName ?? string.Empty);
+    }
+
+    private static bool HasPreferredInstallerExtension(string? fileName)
+    {
+        if (string.IsNullOrWhiteSpace(fileName))
+            return false;
+
+        return fileName.EndsWith(".msi", StringComparison.OrdinalIgnoreCase)
+            || fileName.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
+            || fileName.EndsWith(".msix", StringComparison.OrdinalIgnoreCase)
+            || fileName.EndsWith(".msixbundle", StringComparison.OrdinalIgnoreCase);
     }
 }
