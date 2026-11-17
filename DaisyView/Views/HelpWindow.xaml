@@ -303,6 +303,75 @@
                 </StackPanel>
             </Border>
 
+            <!-- Diagnostics Section -->
+            <Border BorderBrush="#CCCCCC" BorderThickness="1" CornerRadius="8" Background="White" Padding="20" Margin="0,0,0,20">
+                <StackPanel>
+                    <TextBlock Text="Diagnostics &amp; Troubleshooting" FontSize="18" FontWeight="Bold" Foreground="#333333" Margin="0,0,0,12" />
+                    
+                    <TextBlock TextWrapping="Wrap" Foreground="#555555" Margin="0,0,0,12">
+                        <Run>DaisyView automatically logs important events and errors to help diagnose issues. If the application unexpectedly closes or encounters problems, detailed diagnostic information is recorded in log files.</Run>
+                    </TextBlock>
+
+                    <TextBlock FontSize="14" FontWeight="Bold" Foreground="#555555" Margin="0,0,0,8">
+                        📋 Application Logs
+                    </TextBlock>
+
+                    <TextBlock TextWrapping="Wrap" Foreground="#666666" Margin="20,0,0,8">
+                        <Run>Log files contain:</Run>
+                    </TextBlock>
+                    <TextBlock TextWrapping="Wrap" Foreground="#666666" Margin="20,0,0,4">
+                        <Run>• Application startup and shutdown events</Run>
+                    </TextBlock>
+                    <TextBlock TextWrapping="Wrap" Foreground="#666666" Margin="20,0,0,4">
+                        <Run>• System information (OS, memory, processor)</Run>
+                    </TextBlock>
+                    <TextBlock TextWrapping="Wrap" Foreground="#666666" Margin="20,0,0,4">
+                        <Run>• User actions and navigation history</Run>
+                    </TextBlock>
+                    <TextBlock TextWrapping="Wrap" Foreground="#666666" Margin="20,0,0,4">
+                        <Run>• Performance metrics for long-running operations</Run>
+                    </TextBlock>
+                    <TextBlock TextWrapping="Wrap" Foreground="#666666" Margin="20,0,0,12">
+                        <Run>• Complete error details and stack traces if problems occur</Run>
+                    </TextBlock>
+
+                    <TextBlock TextWrapping="Wrap" Foreground="#666666" Margin="20,0,0,8">
+                        <Run>Log files are created daily and stored locally on your computer. Click the button below to open the logs folder.</Run>
+                    </TextBlock>
+
+                    <Button Content="📂 Open Logs Folder" 
+                            Width="150"
+                            Height="36"
+                            HorizontalAlignment="Left"
+                            Click="OpenLogsButton_Click"
+                            Background="#28A745"
+                            Foreground="White"
+                            FontSize="12"
+                            FontWeight="Bold"
+                            Margin="20,0,0,0" />
+
+                    <TextBlock FontSize="14" FontWeight="Bold" Foreground="#555555" Margin="0,16,0,8">
+                        🔍 Reporting Issues
+                    </TextBlock>
+
+                    <TextBlock TextWrapping="Wrap" Foreground="#666666" Margin="20,0,0,8">
+                        <Run>If you encounter problems or the application closes unexpectedly:</Run>
+                    </TextBlock>
+                    <TextBlock TextWrapping="Wrap" Foreground="#666666" Margin="20,0,0,4">
+                        <Run>1. Open the logs folder (button above)</Run>
+                    </TextBlock>
+                    <TextBlock TextWrapping="Wrap" Foreground="#666666" Margin="20,0,0,4">
+                        <Run>2. Find the log file for the date the issue occurred</Run>
+                    </TextBlock>
+                    <TextBlock TextWrapping="Wrap" Foreground="#666666" Margin="20,0,0,4">
+                        <Run>3. Look for lines starting with [ERR] or [WRN]</Run>
+                    </TextBlock>
+                    <TextBlock TextWrapping="Wrap" Foreground="#666666" Margin="20,0,0,8">
+                        <Run>4. Report the issue with the relevant log entries to help diagnose the problem</Run>
+                    </TextBlock>
+                </StackPanel>
+            </Border>
+
             <!-- Close Button -->
             <Button Content="Close" 
                     Width="100"

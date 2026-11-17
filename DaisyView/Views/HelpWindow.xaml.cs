@@ -55,4 +55,42 @@ public partial class HelpWindow : Window
     {
         Close();
     }
+
+    /// <summary>
+    /// Opens the logs folder in Windows Explorer
+    /// </summary>
+    private void OpenLogsButton_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var logsPath = System.IO.Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "DaisyView",
+                "logs");
+
+            if (!System.IO.Directory.Exists(logsPath))
+            {
+                MessageBox.Show(
+                    "No log files found yet. Logs are created when the application runs.",
+                    "Logs Not Found",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+                return;
+            }
+
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = logsPath,
+                UseShellExecute = true
+            });
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(
+                $"Could not open logs folder: {ex.Message}",
+                "Error",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+        }
+    }
 }
