@@ -578,6 +578,186 @@ public class FileSystemService : IDisposable
     }
 
     /// <summary>
+    /// Gets image files with support for cancellation and progress reporting
+    /// </summary>
+    public async Task<List<ImageFile>> GetImageFilesAsync(
+        string folderPath, 
+        bool forceRescan,
+        IProgress<(int current, int total, string status)>? progress,
+        CancellationToken cancellationToken)
+    {
+        return await Task.Run(() => GetImageFilesWithProgress(folderPath, forceRescan, progress, cancellationToken), cancellationToken);
+    }
+
+    /// <summary>
+    /// Gets image files with progress reporting and cancellation support
+    /// </summary>
+    private List<ImageFile> GetImageFilesWithProgress(
+        string folderPath, 
+        bool forceRescan,
+        IProgress<(int current, int total, string status)>? progress,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            // Check cache first
+            if (!forceRescan && TryLoadFolderIndexCache(folderPath, out var cachedImages))
+            {
+                progress?.Report((cachedImages.Count, cachedImages.Count, "Loading from cache..."));
+                _loggingService.LogTrace("Loaded {ImageCount} media files from folder cache for {FolderPath}", cachedImages.Count, folderPath);
+                return cachedImages;
+            }
+
+            if (forceRescan)
+            {
+                InvalidateFolderIndexCache(folderPath);
+                _loggingService.LogTrace("Force rescan requested for folder: {FolderPath}", folderPath);
+            }
+
+            progress?.Report((0, 0, "Scanning folder..."));
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var images = BuildImageFileListFromFileSystemWithProgress(folderPath, progress, cancellationToken);
+            
+            cancellationToken.ThrowIfCancellationRequested();
+            progress?.Report((images.Count, images.Count, "Saving cache..."));
+            TrySaveFolderIndexCache(folderPath, images);
+
+            _loggingService.LogTrace("Found {ImageCount} image files in {FolderPath} (including shortcuts)", images.Count, folderPath);
+            return images;
+        }
+        catch (OperationCanceledException)
+        {
+            _loggingService.LogTrace("Folder scan cancelled for {FolderPath}", folderPath);
+            return new List<ImageFile>();
+        }
+        catch (Exception ex)
+        {
+            _loggingService.LogError("Failed to get image files for {FolderPath}", ex, folderPath);
+            return new List<ImageFile>();
+        }
+    }
+
+    /// <summary>
+    /// Builds image file list from file system with progress reporting and cancellation support
+    /// </summary>
+    private List<ImageFile> BuildImageFileListFromFileSystemWithProgress(
+        string folderPath,
+        IProgress<(int current, int total, string status)>? progress,
+        CancellationToken cancellationToken)
+    {
+        var images = new List<ImageFile>();
+        var directory = new DirectoryInfo(folderPath);
+
+        // Get direct image files
+        var files = directory.GetFiles()
+            .Where(f => MediaTypeHelper.IsSupportedMedia(f.FullName))
+            .OrderBy(f => f.Name)
+            .ToList();
+
+        progress?.Report((0, files.Count, "Scanning direct folder..."));
+        int fileIndex = 0;
+
+        foreach (var file in files)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var isVideo = MediaTypeHelper.IsVideoFile(file.FullName);
+            images.Add(new ImageFile
+            {
+                FileName = file.Name,
+                FilePath = file.FullName,
+                IsMarked = false,
+                IsActive = false,
+                IsVideo = isVideo,
+                ThumbnailGenerated = false,
+                IsFromShortcut = false,
+                ShortcutName = null
+            });
+
+            fileIndex++;
+            progress?.Report((fileIndex, files.Count, "Scanning direct folder..."));
+        }
+
+        // Get images from shortcut files (folder shortcuts and file shortcuts)
+        var shortcuts = directory.GetFiles("*.lnk");
+        progress?.Report((fileIndex, files.Count + shortcuts.Length, "Scanning shortcuts..."));
+        int shortcutIndex = 0;
+
+        foreach (var shortcut in shortcuts)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            // First try: folder shortcut -> gather all media files from target folder
+            var targetFolder = ResolveShortcutToFolder(shortcut.FullName);
+            if (targetFolder != null)
+            {
+                var shortcutName = Path.GetFileNameWithoutExtension(shortcut.Name);
+                var targetDir = new DirectoryInfo(targetFolder);
+
+                var shortcutFiles = targetDir.GetFiles()
+                    .Where(f => MediaTypeHelper.IsSupportedMedia(f.FullName))
+                    .OrderBy(f => f.Name)
+                    .ToList();
+
+                foreach (var file in shortcutFiles)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+
+                    var isVideo = MediaTypeHelper.IsVideoFile(file.FullName);
+                    images.Add(new ImageFile
+                    {
+                        FileName = file.Name,
+                        FilePath = file.FullName,
+                        IsMarked = false,
+                        IsActive = false,
+                        IsVideo = isVideo,
+                        ThumbnailGenerated = false,
+                        IsFromShortcut = true,
+                        ShortcutName = shortcutName
+                    });
+                }
+
+                _loggingService.LogTrace("Found {Count} images in shortcut '{ShortcutName}' -> {TargetFolder}",
+                    shortcutFiles.Count, shortcutName, targetFolder);
+                
+                shortcutIndex++;
+                progress?.Report((fileIndex + shortcutIndex, files.Count + shortcuts.Length, "Scanning shortcuts..."));
+                continue;
+            }
+
+            // Second try: file shortcut -> the shortcut points directly to a media file
+            var targetFile = ResolveShortcutToFile(shortcut.FullName);
+            if (targetFile != null && MediaTypeHelper.IsSupportedMedia(targetFile))
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                var isVideo = MediaTypeHelper.IsVideoFile(targetFile);
+                // Use the parent folder name (slot number) as a label
+                var parentFolderName = new DirectoryInfo(Path.GetDirectoryName(targetFile) ?? "").Name;
+                images.Add(new ImageFile
+                {
+                    FileName = Path.GetFileName(targetFile),
+                    FilePath = targetFile,
+                    IsMarked = false,
+                    IsActive = false,
+                    IsVideo = isVideo,
+                    ThumbnailGenerated = false,
+                    IsFromShortcut = true,
+                    ShortcutName = parentFolderName
+                });
+
+                _loggingService.LogTrace("Found shortcut to file: {TargetFile}", targetFile);
+            }
+
+            shortcutIndex++;
+            progress?.Report((fileIndex + shortcutIndex, files.Count + shortcuts.Length, "Scanning shortcuts..."));
+        }
+
+        return images;
+    }
+
+    /// <summary>
     /// Starts watching a folder for file system changes
     /// </summary>
     public void WatchFolder(string folderPath)

@@ -23,9 +23,11 @@ public partial class MainWindow : Window
     private MainWindowViewModel? _viewModel;
     private bool _isInitializingAspectRatioSelector;
     private readonly DispatcherTimer _thumbnailPriorityTimer;
+    private readonly DispatcherTimer _progressDialogDelayTimer;
     private readonly HashSet<string> _mergedFolderSelection = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<TreeNode> _mergedFolderNodes = new();
     private TreeNode? _lastViewedShortcut = null;
+    private ProgressDialog? _currentProgressDialog;
 
     public MainWindow()
     {
@@ -48,6 +50,13 @@ public partial class MainWindow : Window
             Interval = TimeSpan.FromMilliseconds(40)
         };
         _thumbnailPriorityTimer.Tick += ThumbnailPriorityTimer_Tick;
+
+        // Timer to delay progress dialog - only show if loading takes more than 1.5 seconds
+        _progressDialogDelayTimer = new DispatcherTimer
+        {
+            Interval = TimeSpan.FromMilliseconds(1500)
+        };
+        _progressDialogDelayTimer.Tick += ProgressDialogDelayTimer_Tick;
     }
 
     /// <summary>
@@ -187,6 +196,80 @@ public partial class MainWindow : Window
         {
             ScheduleVisibleThumbnailPriorityUpdate();
         }
+        else if (e.PropertyName == nameof(MainWindowViewModel.StatusMessage))
+        {
+            // Monitor status message to handle progress dialog
+            HandleStatusMessageChange();
+        }
+    }
+
+    /// <summary>
+    /// Handles status message changes - shows/hides progress dialog as needed
+    /// </summary>
+    private void HandleStatusMessageChange()
+    {
+        if (_viewModel == null)
+            return;
+
+        var statusMessage = _viewModel.StatusMessage;
+
+        // If we're starting a folder load, start the delay timer
+        if (!string.IsNullOrEmpty(statusMessage) && statusMessage.Contains("Loading folder", StringComparison.OrdinalIgnoreCase))
+        {
+            if (!_progressDialogDelayTimer.IsEnabled)
+            {
+                _progressDialogDelayTimer.Start();
+            }
+        }
+        // If loading is complete or cancelled, hide the dialog
+        else if (_currentProgressDialog != null)
+        {
+            _currentProgressDialog.Close();
+            _currentProgressDialog = null;
+        }
+    }
+
+    /// <summary>
+    /// Timer tick handler - shows progress dialog if loading is still ongoing after 1.5 seconds
+    /// </summary>
+    private void ProgressDialogDelayTimer_Tick(object? sender, EventArgs e)
+    {
+        _progressDialogDelayTimer.Stop();
+
+        if (_viewModel == null || _currentProgressDialog != null)
+            return;
+
+        var statusMessage = _viewModel.StatusMessage;
+
+        // Only show dialog if we're still loading and it's a large folder scenario
+        if (!string.IsNullOrEmpty(statusMessage) && 
+            (statusMessage.Contains("Scanning", StringComparison.OrdinalIgnoreCase) ||
+             statusMessage.Contains("Loading", StringComparison.OrdinalIgnoreCase)))
+        {
+            ShowProgressDialog();
+        }
+    }
+
+    /// <summary>
+    /// Shows the progress dialog for folder loading
+    /// </summary>
+    private void ShowProgressDialog()
+    {
+        if (_currentProgressDialog != null)
+            return;
+
+        _currentProgressDialog = new ProgressDialog
+        {
+            Owner = this,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner
+        };
+
+        _currentProgressDialog.CancelRequested += (s, e) =>
+        {
+            _viewModel?.CancelFolderLoad();
+        };
+
+        _currentProgressDialog.Show();
     }
 
     /// <summary>

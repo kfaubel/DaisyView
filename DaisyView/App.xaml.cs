@@ -1,5 +1,6 @@
 using System;
 using System.Diagnostics;
+using System.IO;
 using System.Reflection;
 using System.Threading.Tasks;
 using System.Windows;
@@ -26,6 +27,12 @@ public partial class App : Application
         try
         {
             base.OnStartup(e);
+            
+            // Wire up global exception handlers BEFORE initialization
+            AppDomain.CurrentDomain.UnhandledException += CurrentDomain_UnhandledException;
+            Current.DispatcherUnhandledException += Application_DispatcherUnhandledException;
+            TaskScheduler.UnobservedTaskException += TaskScheduler_UnobservedTaskException;
+            
             LogStartupTime("Application OnStartup started");
 
             // Initialize services
@@ -36,6 +43,8 @@ public partial class App : Application
             LogStartupTime("LoggingService initialized");
 
             var appSettings = _settingsService.GetSettings();
+            LogSystemInfo();
+            
             _updateCheckService = new UpdateCheckService(
                 _loggingService,
                 appSettings.UpdateGitHubOwner,
@@ -219,6 +228,105 @@ public partial class App : Application
         catch (Exception ex)
         {
             _loggingService?.LogWarning("Error during update check: {Message}", ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// Logs system information at startup for diagnostics
+    /// </summary>
+    private void LogSystemInfo()
+    {
+        try
+        {
+            var osVersion = Environment.OSVersion;
+            var processorCount = Environment.ProcessorCount;
+            var totalMemory = GC.GetTotalMemory(false) / (1024 * 1024); // MB
+            var appVersion = Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "unknown";
+
+            _loggingService?.LogInfo(
+                "=== System Information === OS: {OSVersion} | Processors: {ProcessorCount} | " +
+                "Available Memory: {TotalMemoryMb}MB | DaisyView Version: {AppVersion}",
+                osVersion, processorCount, totalMemory, appVersion);
+        }
+        catch (Exception ex)
+        {
+            _loggingService?.LogWarning("Failed to log system information: {Message}", ex.Message);
+        }
+    }
+
+    /// <summary>
+    /// Handles unhandled exceptions on the UI thread
+    /// </summary>
+    private void Application_DispatcherUnhandledException(
+        object sender,
+        System.Windows.Threading.DispatcherUnhandledExceptionEventArgs e)
+    {
+        _loggingService?.LogError(
+            "=== CRITICAL: UNHANDLED DISPATCHER EXCEPTION - Application will terminate ===",
+            e.Exception);
+
+        MessageBox.Show(
+            $"An unexpected error occurred and DaisyView must close.\n\n" +
+            $"Error: {e.Exception.Message}\n\n" +
+            $"Technical details have been logged to:\n" +
+            $"{Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "DaisyView", "logs")}",
+            "Critical Error - DaisyView Closing",
+            MessageBoxButton.OK,
+            MessageBoxImage.Error);
+
+        e.Handled = false; // Allow application to crash (we've logged it)
+        Shutdown(1); // Exit with error code 1
+    }
+
+    /// <summary>
+    /// Handles unhandled exceptions in background tasks
+    /// </summary>
+    private void TaskScheduler_UnobservedTaskException(
+        object? sender,
+        UnobservedTaskExceptionEventArgs e)
+    {
+        _loggingService?.LogError(
+            "=== Unhandled Task/Async Exception ===",
+            e.Exception);
+
+        // Don't show dialog for cancellation exceptions
+        if (!e.Exception.Message.Contains("cancelled", StringComparison.OrdinalIgnoreCase))
+        {
+            MainWindow?.Dispatcher.Invoke(() =>
+            {
+                MessageBox.Show(
+                    $"A background operation failed: {e.Exception.Message}\n\n" +
+                    "The application will continue running, but some features may not work correctly.",
+                    "Background Operation Error",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+            });
+        }
+
+        e.SetObserved(); // Prevent application crash for task exceptions
+    }
+
+    /// <summary>
+    /// Handles unhandled exceptions from the CLR runtime
+    /// </summary>
+    private void CurrentDomain_UnhandledException(
+        object sender,
+        UnhandledExceptionEventArgs e)
+    {
+        var ex = (Exception)e.ExceptionObject;
+        _loggingService?.LogError(
+            "=== CRITICAL: Unhandled CLR Exception - IsTerminating: {IsTerminating} ===",
+            ex,
+            e.IsTerminating);
+
+        if (e.IsTerminating)
+        {
+            MessageBox.Show(
+                "A critical system error occurred. DaisyView must close immediately.\n\n" +
+                "Please check the log file for details.",
+                "Critical System Error",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
         }
     }
 }

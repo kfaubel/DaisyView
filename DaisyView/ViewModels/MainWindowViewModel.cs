@@ -4,6 +4,7 @@ using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Input;
 using DaisyView.Constants;
@@ -46,6 +47,7 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
     private readonly ThumbnailService _thumbnailService;
     private readonly FitsImageService _fitsImageService;
     private bool _isNavigating = false;
+    private CancellationTokenSource? _folderLoadCancellationTokenSource;
 
     private ObservableCollection<TreeNode> _rootNodes = new();
     private TreeNode? _activeFolder;
@@ -545,6 +547,15 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
     }
 
     /// <summary>
+    /// Cancels the currently running folder load operation
+    /// </summary>
+    public void CancelFolderLoad()
+    {
+        _folderLoadCancellationTokenSource?.Cancel();
+        _loggingService.LogTrace("Folder load cancellation requested");
+    }
+
+    /// <summary>
     /// Navigates to a merged view of multiple folders.
     /// </summary>
     public void NavigateToFolders(List<string> folderPaths)
@@ -613,13 +624,27 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
             // Cancel thumbnail generation for the previous folder
             _thumbnailService.CancelBackgroundGeneration();
 
+            // Create a new cancellation token source for this load operation
+            _folderLoadCancellationTokenSource?.Dispose();
+            _folderLoadCancellationTokenSource = new CancellationTokenSource();
+
             // Clear images immediately so old tiles disappear and the grid shows blank placeholders
             Images = new ObservableCollection<ImageFile>();
             StatusMessage = "Loading folder contents...";
 
-            // Load images from the new folder asynchronously
+            // Load images from the new folder asynchronously with progress reporting
             var shouldForceRescan = forceRescan || sourceNode != null;
-            var images = await _fileSystemService.GetImageFilesAsync(folderPath, shouldForceRescan);
+            var progress = new Progress<(int current, int total, string status)>(p =>
+            {
+                StatusMessage = p.status;
+            });
+
+            var images = await _fileSystemService.GetImageFilesAsync(
+                folderPath, 
+                shouldForceRescan,
+                progress,
+                _folderLoadCancellationTokenSource.Token);
+            
             _loggingService.LogInfo(
                 "Folder load milestone: list-ready for {FolderPath} in {ElapsedMs}ms ({MediaCount} media files)",
                 folderPath,
@@ -747,6 +772,11 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
                 "Folder load completed for {FolderPath} in {ElapsedMs}ms",
                 folderPath,
                 navigationStopwatch.ElapsedMilliseconds);
+        }
+        catch (OperationCanceledException)
+        {
+            _loggingService.LogInfo("Folder load cancelled for {FolderPath}", folderPath);
+            StatusMessage = "Folder load cancelled";
         }
         catch (Exception ex)
         {
