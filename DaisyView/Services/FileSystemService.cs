@@ -22,6 +22,7 @@ namespace DaisyView.Services;
 public class FileSystemService : IDisposable
 {
     private const int FolderIndexCacheVersion = 1;
+    private const int FolderScanProgressReportInterval = 100;
 
     private sealed class FolderIndexCacheEntry
     {
@@ -646,6 +647,7 @@ public class FileSystemService : IDisposable
         IProgress<(int current, int total, string status)>? progress,
         CancellationToken cancellationToken)
     {
+        var scanStopwatch = System.Diagnostics.Stopwatch.StartNew();
         var images = new List<ImageFile>();
         var directory = new DirectoryInfo(folderPath);
 
@@ -676,7 +678,10 @@ public class FileSystemService : IDisposable
             });
 
             fileIndex++;
-            progress?.Report((fileIndex, files.Count, "Scanning direct folder..."));
+            if (ShouldReportProgress(fileIndex, files.Count))
+            {
+                progress?.Report((fileIndex, files.Count, "Scanning direct folder..."));
+            }
         }
 
         // Get images from shortcut files (folder shortcuts and file shortcuts)
@@ -722,7 +727,10 @@ public class FileSystemService : IDisposable
                     shortcutFiles.Count, shortcutName, targetFolder);
                 
                 shortcutIndex++;
-                progress?.Report((fileIndex + shortcutIndex, files.Count + shortcuts.Length, "Scanning shortcuts..."));
+                if (ShouldReportProgress(fileIndex + shortcutIndex, files.Count + shortcuts.Length))
+                {
+                    progress?.Report((fileIndex + shortcutIndex, files.Count + shortcuts.Length, "Scanning shortcuts..."));
+                }
                 continue;
             }
 
@@ -751,10 +759,30 @@ public class FileSystemService : IDisposable
             }
 
             shortcutIndex++;
-            progress?.Report((fileIndex + shortcutIndex, files.Count + shortcuts.Length, "Scanning shortcuts..."));
+            if (ShouldReportProgress(fileIndex + shortcutIndex, files.Count + shortcuts.Length))
+            {
+                progress?.Report((fileIndex + shortcutIndex, files.Count + shortcuts.Length, "Scanning shortcuts..."));
+            }
         }
 
+        progress?.Report((files.Count + shortcuts.Length, files.Count + shortcuts.Length, "Folder scan complete"));
+        _loggingService.LogInfo(
+            "Folder scan completed for {FolderPath} in {ElapsedMs}ms ({DirectMediaCount} direct media files, {ShortcutCount} shortcuts, {TotalMediaCount} total media files)",
+            folderPath,
+            scanStopwatch.ElapsedMilliseconds,
+            files.Count,
+            shortcuts.Length,
+            images.Count);
+
         return images;
+    }
+
+    private static bool ShouldReportProgress(int current, int total)
+    {
+        if (total <= 0 || current >= total)
+            return true;
+
+        return current % FolderScanProgressReportInterval == 0;
     }
 
     /// <summary>

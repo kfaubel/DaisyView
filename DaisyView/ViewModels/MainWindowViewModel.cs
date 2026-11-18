@@ -618,7 +618,12 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
             // so new/missing subdirectories are reflected immediately.
             if (sourceNode != null)
             {
+                var refreshStopwatch = Stopwatch.StartNew();
                 RefreshFolderNodeChildren(sourceNode);
+                _loggingService.LogInfo(
+                    "Folder load milestone: source-node refresh for {FolderPath} in {ElapsedMs}ms",
+                    sourceNode.FullPath,
+                    refreshStopwatch.ElapsedMilliseconds);
             }
 
             // Cancel thumbnail generation for the previous folder
@@ -660,6 +665,8 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
                 "Folder load milestone: images-bound for {FolderPath} in {ElapsedMs}ms",
                 folderPath,
                 navigationStopwatch.ElapsedMilliseconds);
+
+            _ = LogFolderUiSettleAsync(folderPath, images.Count, navigationStopwatch);
 
             // Restore last active image for this folder, or fall back to first image
             var lastActiveFileName = _settingsService.GetLastActiveImage(_currentViewStateKey);
@@ -768,6 +775,8 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
             // Refresh the subfolders for the active folder to show any new/deleted folders
             RefreshCurrentFolderSubfolders();
 
+            StatusMessage = $"Loaded {Images.Count} media file(s).";
+
             _loggingService.LogInfo(
                 "Folder load completed for {FolderPath} in {ElapsedMs}ms",
                 folderPath,
@@ -811,6 +820,7 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
         }
 
         _isNavigating = true;
+        var mergeStopwatch = Stopwatch.StartNew();
 
         try
         {
@@ -822,6 +832,12 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
 
             var imageTasks = validFolders.Select(path => _fileSystemService.GetImageFilesAsync(path)).ToList();
             var folderResults = await Task.WhenAll(imageTasks);
+            var totalLoadedImages = folderResults.Sum(images => images.Count);
+            _loggingService.LogInfo(
+                "Merged folder load milestone: lists-ready in {ElapsedMs}ms ({FolderCount} folders, {MediaCount} media files before dedupe)",
+                mergeStopwatch.ElapsedMilliseconds,
+                validFolders.Count,
+                totalLoadedImages);
 
             var mergedImages = folderResults
                 .SelectMany(images => images)
@@ -829,6 +845,11 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
                 .Select(group => group.First())
                 .OrderBy(image => image.DisplayName, StringComparer.OrdinalIgnoreCase)
                 .ToList();
+
+            _loggingService.LogInfo(
+                "Merged folder load milestone: merge-complete in {ElapsedMs}ms ({MergedCount} unique media files)",
+                mergeStopwatch.ElapsedMilliseconds,
+                mergedImages.Count);
 
             Images = new ObservableCollection<ImageFile>(mergedImages);
             _currentFolderPath = null;
@@ -890,6 +911,12 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
             _lastPriorityStartIndex = -1;
             _lastPriorityEndIndex = -1;
             StatusMessage = $"Merged {validFolders.Count} folders ({mergedImages.Count} media files). Ctrl+click folders to add/remove.";
+
+            _loggingService.LogInfo(
+                "Merged folder load completed in {ElapsedMs}ms ({FolderCount} folders, {MergedCount} media files)",
+                mergeStopwatch.ElapsedMilliseconds,
+                validFolders.Count,
+                mergedImages.Count);
         }
         catch (Exception ex)
         {
@@ -1245,6 +1272,31 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
         }
 
         return counts.Values.All(count => count == 0);
+    }
+
+    private async Task LogFolderUiSettleAsync(string folderPath, int mediaCount, Stopwatch navigationStopwatch)
+    {
+        var dispatcher = System.Windows.Application.Current?.Dispatcher;
+        if (dispatcher == null)
+            return;
+
+        try
+        {
+            await dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.ContextIdle);
+            _loggingService.LogInfo(
+                "Folder load milestone: UI settled for {FolderPath} in {ElapsedMs}ms ({MediaCount} media files)",
+                folderPath,
+                navigationStopwatch.ElapsedMilliseconds,
+                mediaCount);
+        }
+        catch (TaskCanceledException)
+        {
+            _loggingService.LogTrace("UI settle logging cancelled for {FolderPath}", folderPath);
+        }
+        catch (Exception ex)
+        {
+            _loggingService.LogWarning("Unable to log UI settle milestone for {FolderPath}: {Message}", folderPath, ex.Message);
+        }
     }
     /// <summary>
     /// Toggles audio playback during slideshow mode
