@@ -7,6 +7,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Input;
+using System.Windows.Threading;
 using DaisyView.Constants;
 using DaisyView.Models;
 using DaisyView.Services;
@@ -69,6 +70,10 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
     private string? _currentViewStateKey;
     private readonly List<string> _navigationHistory = new();
     private bool _isSlideshowOpen;
+    private readonly DispatcherTimer _fileSystemRefreshTimer;
+    private string? _pendingFileSystemRefreshFolder;
+    private bool _pendingMergedFileSystemRefresh;
+    private string? _watchedSingleFolderPath;
 
     // Commands
     private ICommand? _navigateToFolderCommand;
@@ -322,6 +327,11 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
         _fileSystemService = new FileSystemService(_loggingService);
         _thumbnailService = new ThumbnailService(_loggingService);
         _fitsImageService = new FitsImageService(_loggingService);
+        _fileSystemRefreshTimer = new DispatcherTimer
+        {
+            Interval = TimeSpan.FromMilliseconds(300)
+        };
+        _fileSystemRefreshTimer.Tick += FileSystemRefreshTimer_Tick;
 
         // Subscribe to file system changes to refresh the view when files are added/removed
         _fileSystemService.FileSystemChanged += OnFileSystemChanged;
@@ -346,7 +356,6 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
 
         _loggingService.LogTrace("File system change detected: {ChangeType} - {Path}", e.ChangeType, e.FullPath);
 
-        // Refresh the current folder view on the UI thread
         if (IsMergedFolderView)
         {
             System.Windows.Application.Current?.Dispatcher.BeginInvoke(() =>
@@ -357,7 +366,9 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
 
                 if (isFromSelectedFolder)
                 {
-                    NavigateToFolders(_selectedFolderPaths);
+                    _pendingMergedFileSystemRefresh = true;
+                    _fileSystemRefreshTimer.Stop();
+                    _fileSystemRefreshTimer.Start();
                 }
             });
             return;
@@ -367,19 +378,47 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
         {
             System.Windows.Application.Current?.Dispatcher.BeginInvoke(() =>
             {
-                // Check if the change was a directory change - if so, refresh the tree node's children
-                var changedPath = e.FullPath;
-                var parentPath = System.IO.Path.GetDirectoryName(changedPath);
-
-                if (parentPath != null && string.Equals(parentPath, ActiveFolder.FullPath, StringComparison.OrdinalIgnoreCase))
+                if (IsFileSystemChangeInFolder(e, ActiveFolder.FullPath))
                 {
-                    // The change happened in the current folder - refresh both images and subfolders
-                    RefreshCurrentFolderSubfolders();
+                    _pendingFileSystemRefreshFolder = ActiveFolder.FullPath;
+                    _fileSystemRefreshTimer.Stop();
+                    _fileSystemRefreshTimer.Start();
                 }
-
-                NavigateToFolder(ActiveFolder.FullPath);
             });
         }
+    }
+
+    public static bool IsFileSystemChangeInFolder(System.IO.FileSystemEventArgs e, string? folderPath)
+    {
+        if (e == null || string.IsNullOrWhiteSpace(folderPath))
+            return false;
+
+        var parentPath = System.IO.Path.GetDirectoryName(e.FullPath);
+        return parentPath != null
+            && string.Equals(parentPath.TrimEnd(System.IO.Path.DirectorySeparatorChar),
+                folderPath.TrimEnd(System.IO.Path.DirectorySeparatorChar),
+                StringComparison.OrdinalIgnoreCase);
+    }
+
+    private void FileSystemRefreshTimer_Tick(object? sender, EventArgs e)
+    {
+        _fileSystemRefreshTimer.Stop();
+
+        if (_pendingMergedFileSystemRefresh)
+        {
+            _pendingMergedFileSystemRefresh = false;
+            var selectedFolders = _selectedFolderPaths.ToList();
+            NavigateToFolders(selectedFolders);
+            return;
+        }
+
+        var folderPath = _pendingFileSystemRefreshFolder;
+        _pendingFileSystemRefreshFolder = null;
+        if (string.IsNullOrWhiteSpace(folderPath))
+            return;
+
+        RefreshCurrentFolderSubfolders();
+        NavigateToFolder(folderPath, forceRescan: true);
     }
 
     /// <summary>
@@ -543,6 +582,7 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
             return;
         }
 
+        _folderLoadCancellationTokenSource?.Cancel();
         _ = NavigateToFolderAsync(folderPath, sourceNode, addToHistory, forceRescan);
     }
 
@@ -630,6 +670,7 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
             _thumbnailService.CancelBackgroundGeneration();
 
             // Create a new cancellation token source for this load operation
+            _folderLoadCancellationTokenSource?.Cancel();
             _folderLoadCancellationTokenSource?.Dispose();
             _folderLoadCancellationTokenSource = new CancellationTokenSource();
 
@@ -649,6 +690,11 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
                 shouldForceRescan,
                 progress,
                 _folderLoadCancellationTokenSource.Token);
+
+            if (_folderLoadCancellationTokenSource.IsCancellationRequested)
+            {
+                throw new OperationCanceledException(_folderLoadCancellationTokenSource.Token);
+            }
             
             _loggingService.LogInfo(
                 "Folder load milestone: list-ready for {FolderPath} in {ElapsedMs}ms ({MediaCount} media files)",
@@ -693,7 +739,13 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
             _settingsService.SetLastActiveFolderPath(folderPath);
 
             // Watch this folder for changes
+            if (!string.IsNullOrWhiteSpace(_watchedSingleFolderPath)
+                && !string.Equals(_watchedSingleFolderPath, folderPath, StringComparison.OrdinalIgnoreCase))
+            {
+                _fileSystemService.UnwatchFolder(_watchedSingleFolderPath);
+            }
             _fileSystemService.WatchFolder(folderPath);
+            _watchedSingleFolderPath = folderPath;
 
             // Check if this folder is a favorite
             IsFavorite = _settingsService.IsFavorite(folderPath);
@@ -825,6 +877,11 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
         try
         {
             _thumbnailService.CancelBackgroundGeneration();
+            if (!string.IsNullOrWhiteSpace(_watchedSingleFolderPath))
+            {
+                _fileSystemService.UnwatchFolder(_watchedSingleFolderPath);
+                _watchedSingleFolderPath = null;
+            }
 
             // Clear images immediately so old tiles disappear and the grid shows blank placeholders
             Images = new ObservableCollection<ImageFile>();
@@ -1854,6 +1911,9 @@ public class MainWindowViewModel : ViewModelBase, IDisposable
 
         if (disposing)
         {
+            _fileSystemRefreshTimer.Stop();
+            _folderLoadCancellationTokenSource?.Cancel();
+
             // Unsubscribe from file system changes
             _fileSystemService.FileSystemChanged -= OnFileSystemChanged;
             

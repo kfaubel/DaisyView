@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using Xunit;
 using DaisyView.Services;
+using DaisyView.ViewModels;
 using Moq;
 
 namespace DaisyView.Tests;
@@ -80,5 +81,21 @@ public class FileSystemServiceTests
             if (Directory.Exists(tempFolder))
                 Directory.Delete(tempFolder);
         }
+    }
+
+    [Theory]
+    [InlineData(@"K:\New\Fresh9\image.jpg", @"K:\New\Fresh9", true)]
+    [InlineData(@"K:\Import\Sort\image.jpg", @"K:\New\Fresh9", false)]
+    [InlineData(@"K:\New\Fresh9", @"K:\New\Fresh9", false)]
+    public void IsFileSystemChangeInFolder_FiltersOldFolderEvents(
+        string changedPath,
+        string activeFolder,
+        bool expected)
+    {
+        var relevant = MainWindowViewModel.IsFileSystemChangeInFolder(
+            new FileSystemEventArgs(WatcherChangeTypes.Created, Path.GetDirectoryName(changedPath) ?? string.Empty, Path.GetFileName(changedPath)),
+            activeFolder);
+
+        Assert.Equal(expected, relevant);
     }
 }
